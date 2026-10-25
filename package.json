@@ -1,10 +1,22 @@
 {
-  "name": "playwright-automation",
-  "version": "1.0.0",
-  "description": "Playwright end-to-end tests running on Termux (Android) with system Chromium",
+  "name": "pwterm",
+  "version": "0.1.0",
+  "description": "Playwright automation CLI for Termux (Android) using system Chromium",
   "main": "index.js",
+  "bin": {
+    "pwterm": "bin/pwterm.js"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "scripts/",
+    "examples/",
+    "README.md"
+  ],
   "scripts": {
     "start": "node index.js",
+    "pwterm": "node bin/pwterm.js",
+    "postinstall": "node scripts/termux-shim.js",
     "test": "PLAYWRIGHT_BROWSERS_PATH=0 node ./node_modules/@playwright/test/cli.js test",
     "test:headed": "PLAYWRIGHT_BROWSERS_PATH=0 node ./node_modules/@playwright/test/cli.js test --headed",
     "report": "PLAYWRIGHT_BROWSERS_PATH=0 node ./node_modules/@playwright/test/cli.js show-report",
@@ -14,14 +26,20 @@
     "playwright",
     "termux",
     "android",
+    "cli",
+    "automation",
     "e2e",
     "testing"
   ],
   "author": "Hieu Dam",
   "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "dotenv": "^18.0.5",
-    "playwright-core": "^1.63.0"
+    "playwright-core": "^1.63.0",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1"

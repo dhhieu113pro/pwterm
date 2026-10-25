@@ -1,0 +1,17 @@
+name: Practice Test Automation login
+baseUrl: https://practicetestautomation.com
+timeout: 30000
+vars:
+  username: student
+  password: Password123
+
+steps:
+  - goto: /practice-test-login/
+  - expectTitle: /Practice Test Automation/
+  - fill: { selector: '#username', value: '{{username}}' }
+  - fill: { selector: '#password', value: '{{password}}' }
+  - click: '#submit'
+  - expectUrl: /logged-in-successfully/
+  - expectText: { selector: 'h1', equals: 'Logged In Successfully' }
+  - expectVisible: "a:has-text('Log out')"
+  - screenshot: artifacts/login-success.png
