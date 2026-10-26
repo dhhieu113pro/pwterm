@@ -1,0 +1,14 @@
+name: TodoMVC — add and complete a todo
+baseUrl: https://demo.playwright.dev
+timeout: 30000
+
+steps:
+  - goto: /todomvc/
+  - expectTitle: /TodoMVC/
+  - fill: { selector: '.new-todo', value: 'buy milk' }
+  - press: Enter
+  - expectVisible: "li:has-text('buy milk')"
+  - expectText: { selector: '.todo-count', contains: '1 item left' }
+  - check: '.toggle'
+  - expectVisible: "li.completed:has-text('buy milk')"
+  - screenshot: artifacts/todomvc.png

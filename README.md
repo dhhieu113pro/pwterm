@@ -24,6 +24,8 @@ pwterm run examples/login.yaml --headed --var username=student
 pwterm run examples/login.yaml --quiet
 ```
 
+Two ready-to-run starters: `examples/login.yaml` (login with assertions) and `examples/todomvc.yaml` (a minimal add-and-complete flow for a new site).
+
 Flows are YAML (or JSON) with a `baseUrl`, optional vars, and a list of single-action steps:
 
 ```yaml
@@ -59,6 +61,8 @@ Templates support `{{name}}`, `{{env.HOME}}` and `--var key=value`. A failing st
 | `select`, `check`, `uncheck`, `scroll`, `setViewport`, `reload`, `goBack`, `eval`, `log` | see `pwterm help` |
 
 Flow-level options: `baseUrl`, `vars`, `timeout`, `headless`, `viewport`, `waitUntil`, `storageState` (load cookies), `saveState` (write them after a successful run).
+
+Note on `baseUrl`: URLs resolve like a browser link, so a leading `/` is the domain root even when `baseUrl` has a path. Keep `baseUrl` to the origin (`https://example.com`) and put the path in `goto`.
 
 ### Interactive shell
 
