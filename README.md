@@ -165,6 +165,7 @@ Current suite:
 | `tests/example.spec.js` | network + offline DOM/form sanity checks |
 | `tests/login.spec.js` | positive login, invalid username, invalid password |
 | `tests/vieneu-studio.spec.js` | a local app: gallery, routing, video decode/seek, provider key masking |
+| `tests/vieneu-pipeline.spec.js` | local app, full flow: link → transcript → translate → dub (opt-in, slow) |
 
 ### Testing a local app: VieNeu Studio
 
@@ -190,6 +191,35 @@ project it creates.
 `examples/vieneu-studio.yaml` is the CLI counterpart: gallery → open the
 first card → wait for decode → Translate tab → back to the gallery, printing
 `readyState`/`videoWidth` and writing screenshots to `artifacts/`.
+
+#### The full pipeline (slow, opt-in)
+
+`tests/vieneu-pipeline.spec.js` covers the whole product: paste a link into
+the Auto dialog, then download → transcript → Vietnamese translation → dub,
+and finally play the delivered file. It is skipped unless you hand it a link:
+
+```bash
+VIENEU_E2E_PIPELINE_URL='https://youtu.be/…' \
+VIENEU_STUDIO_URL=http://127.0.0.1:7861 \
+  npm test -- tests/vieneu-pipeline.spec.js
+```
+
+| Env | Meaning |
+|-----|---------|
+| `VIENEU_E2E_PIPELINE_URL` | the link to run (required, otherwise skipped) |
+| `VIENEU_E2E_BACKEND=local` | force the offline translator instead of a saved provider |
+| `VIENEU_E2E_PROVIDER=OpenRouter` | pick a provider by label in the dialog |
+| `VIENEU_E2E_KEEP=1` | keep the project and save the mp4 for review |
+| `VIENEU_E2E_DOWNLOAD_DIR` | write the dubbed mp4 there (the project itself is still cleaned up) |
+| `VIENEU_E2E_TIMEOUT_MS` | overall budget, default 60 min |
+
+It asserts all four stages reach `done`, the transcript is Vietnamese (diacritic
+ratio, length sanity), the SRT is served, the result is an MP4 that reports
+`206` for a byte range, has a real audio track (via `ffprobe`, when installed),
+and decodes and plays in Chromium with the API's duration. A failed run keeps
+its project so the job log and partial transcript can be inspected; a passing
+run deletes it. `examples/vieneu-pipeline.yaml` is the manual version for
+`pwterm`.
 
 `npm start` still runs `index.js`, the original scrape demo that prints a page title.
 

@@ -1,0 +1,43 @@
+name: VieNeu Studio — full auto pipeline
+# Watch the whole product with your own eyes: link → download → transcript →
+# translate → dub, then check that the finished MP4 plays.
+#
+#   vem / vieneu-studio start            # in another shell
+#   pwterm run examples/vieneu-pipeline.yaml \
+#     --var url='https://youtu.be/…' \
+#     --var timeout=3600000
+#
+# This is slow (minutes to tens of minutes): the API calls cost provider
+# quota and the dub runs on the phone. The automated, assertion-heavy version
+# is tests/vieneu-pipeline.spec.js.
+baseUrl: http://127.0.0.1:7861
+timeout: 3600000
+vars:
+  url: ''
+  timeout: '3600000'
+
+steps:
+  - goto: /
+  - expectVisible: '#autoBtn'
+  - click: '#autoBtn'
+  - expectVisible: '#autoModal'
+  - fill: { selector: '#pipeUrl', value: '{{url}}' }
+  - check: '#pipeTranslate'
+  - check: '#pipeDub'
+  - screenshot: artifacts/pipeline-dialog.png
+  - click: '#pipeGo'
+
+  # The gallery hands off to /project/{id}; the job keeps running across it.
+  - waitForUrl: '/project/'
+  - waitFor: { selector: '#pipelineBar:not(.hidden)', timeout: 30000 }
+  - log: 'pipeline started — waiting for the dub (this can take a while)'
+  - waitFor:
+      selector: '#viewSeg button[data-view="Dubbed"]:not([disabled])'
+      timeout: '{{timeout}}'
+
+  # Play the result in the browser: readyState 4 + a real frame size.
+  - click: '#viewSeg button[data-view="Dubbed"]'
+  - waitFor: '#video'
+  - wait: 3000
+  - eval: "(() => { const v = document.querySelector('#video'); return { src: new URL(v.currentSrc).pathname, readyState: v.readyState, width: v.videoWidth, height: v.videoHeight, duration: Math.round(v.duration), error: v.error && v.error.code }; })()"
+  - screenshot: artifacts/pipeline-dubbed.png
