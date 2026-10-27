@@ -209,6 +209,37 @@ test.describe('VieNeu Studio · editor', () => {
     expect(errors).toEqual([]);
   });
 
+  test('a shared deep link and a reload both keep the project loaded',
+       async ({ page, request }) => {
+    // The reported symptom: open /project/{id} directly and get a blank page
+    // (no title, no cues, no video). A thrown ReferenceError during boot used
+    // to do exactly that; this pins the whole first paint.
+    const full = await projectWithVideo(request);
+    test.skip(!full, 'no project with a video on this install');
+    const errors = watchErrors(page);
+
+    const expectLoaded = async () => {
+      await expect(page.locator('#projectTitle'))
+        .toHaveValue(full.title_custom || full.title, { timeout: 20000 });
+      await expect(page.locator('#cueLane .cue')).toHaveCount(full.cues.length);
+      await expect(page.locator('#stageMeta')).not.toBeEmpty();
+      // exactly one view is selected, and it is the one the project saved
+      const expected = full.view === 'Dubbed' && full.has.result ? 'Dubbed' : 'Source';
+      await expect(page.locator('#viewSeg button.active')).toHaveCount(1);
+      await expect(page.locator(`#viewSeg button[data-view="${expected}"]`))
+        .toHaveClass(/active/);
+      expect(await page.locator('#importModal').isVisible()).toBe(false);
+    };
+
+    await page.goto(`${BASE}/project/${full.id}`, { waitUntil: 'load' });
+    await expectLoaded();
+
+    await page.reload({ waitUntil: 'load' });
+    await expectLoaded();
+
+    expect(errors).toEqual([]);
+  });
+
   test('the source video decodes and plays', async ({ page, request }) => {
     const p = await projectWithVideo(request);
     test.skip(!p, 'no project with a video on this install');
@@ -247,6 +278,14 @@ test.describe('VieNeu Studio · editor', () => {
     await page.click('#viewSeg button[data-view="Source"]');
     await expect.poll(() => page.evaluate(() => document.querySelector('#video').currentSrc),
                       { timeout: 20000 }).toBe(info.src);
+
+    // The remembered view must survive a reopen: the last click wins even
+    // though Source/Dubbed were toggled back-to-back (two PATCHes used to
+    // race and leave the wrong one saved).
+    await expect.poll(async () => {
+      const r = await request.get(`${BASE}/api/projects/${p.id}`);
+      return (await r.json()).view;
+    }, { timeout: 15000, intervals: [250, 500, 1000] }).toBe('Source');
   });
 
   test('the Translate tab offers the saved providers without leaking keys',

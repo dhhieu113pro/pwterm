@@ -179,10 +179,11 @@ pwterm run examples/vieneu-studio.yaml                # manual smoke, with scree
 ```
 
 The spec deliberately asserts the things that break silently in a browser:
-the page boots with **no uncaught errors**, the `<video>` reaches
-`readyState >= 2` with a non-zero `videoWidth` (a codec the device cannot
-decode looks fine in the DOM otherwise), byte ranges work so seeking does,
-and API keys never reach the page. It discovers projects through
+a direct `/project/{id}` link and a reload both come up populated, the page
+boots with **no uncaught errors**, the `<video>` reaches `readyState >= 2`
+with a non-zero `videoWidth` (a codec the device cannot decode looks fine in
+the DOM otherwise), byte ranges work so seeking does, the remembered
+Source/Dubbed view survives a reopen, and API keys never reach the page. It discovers projects through
 `/api/projects` instead of hard-coding ids, and cleans up the throwaway
 project it creates.
 
