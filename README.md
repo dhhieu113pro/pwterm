@@ -221,6 +221,11 @@ its project so the job log and partial transcript can be inspected; a passing
 run deletes it. `examples/vieneu-pipeline.yaml` is the manual version for
 `pwterm`.
 
+This is a phone: take a wake-lock first (`termux-wake-lock`) or Android may
+kill the Studio during the dub. The test retries briefly, then fails with an
+explicit "the Studio stopped answering" message; after a restart the queue
+marks the job `interrupted` — that is the OS, not a translation bug.
+
 `npm start` still runs `index.js`, the original scrape demo that prints a page title.
 
 ## Writing a test

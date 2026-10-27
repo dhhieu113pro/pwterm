@@ -54,9 +54,25 @@ function watchErrors(page) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function detail(request, id) {
-  const res = await request.get(`${BASE}/api/projects/${id}`);
-  expect(res.ok(), await res.text()).toBeTruthy();
-  return res.json();
+  // A phone can lose the Studio mid-run (Android kills a background process;
+  // the queue marks the job "interrupted" on restart). Retry briefly, then say
+  // what actually happened instead of a bare ECONNREFUSED.
+  let last;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await request.get(`${BASE}/api/projects/${id}`);
+      if (!res.ok()) throw new Error(`${res.status()} ${(await res.text()).slice(0, 200)}`);
+      return await res.json();
+    } catch (err) {
+      last = err;
+      if (!/ECONNREFUSED|ECONNRESET|socket hang up|EAI_AGAIN/i.test(String(err))) throw err;
+      if (attempt < 2) await sleep(2000);
+    }
+  }
+  throw new Error(
+    `the Studio stopped answering at ${BASE} (${last}).\n` +
+    `Android may have killed it — run 'termux-wake-lock', then check ` +
+    `'vieneu-studio logs'; a restart marks the job "interrupted".`);
 }
 
 /** Poll until the project reaches a terminal status, keeping a timeline. */
