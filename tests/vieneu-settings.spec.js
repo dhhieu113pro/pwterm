@@ -177,3 +177,25 @@ test('a provider that no longer exists survives a save', async ({ page, request 
   expect(defaults.provider).toBe('gone-id');
   expect(errors).toEqual([]);
 });
+
+test('when the voice list cannot load, saving keeps the saved voice', async ({ page, request }) => {
+  const errors = watchErrors(page);
+  const factory = await resetDefaults(request);
+  await putDefaults(request, { engine: factory.engine, voice: factory.voice });
+
+  await page.route(/\/api\/voices\?/, (route) =>
+    route.fulfill({ status: 500, contentType: 'application/json',
+                    body: '{"detail":"voices are offline"}' }));
+  await page.goto(`${BASE}/settings`, { waitUntil: 'domcontentloaded' });
+  await page.locator('#s-voice').focus();
+  await expect(page.locator('#s-voice option')).toHaveCount(1);
+  await expect(page.locator('#s-voice')).toHaveValue(factory.voice);
+
+  await page.locator('#s-freeze').click();          // makes the form dirty
+  const saved = page.waitForResponse((r) =>
+    r.url().includes('/api/defaults') && r.request().method() === 'PUT');
+  await page.click('#saveBtn');
+  expect((await saved).ok()).toBeTruthy();
+  expect((await getDefaults(request)).voice).toBe(factory.voice);
+  expect(errors).toEqual([]);
+});
