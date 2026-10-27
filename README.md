@@ -2,7 +2,7 @@
 
 Playwright end-to-end tests running on **Termux (Android)** against a system-installed Chromium — no Playwright browser downloads, no root.
 
-Fork of [Jobians/playwright-termux](https://github.com/Jobians/playwright-termux), extended into a working test project: `@playwright/test` runner, config, and real specs (a public login-exercise site).
+Fork of [Jobians/playwright-termux](https://github.com/Jobians/playwright-termux), extended into a working test project: `@playwright/test` runner, config, and real specs — a public login-exercise site plus a local app running on the phone.
 
 ## `pwterm` — the CLI
 
@@ -164,6 +164,31 @@ Current suite:
 |------|--------|
 | `tests/example.spec.js` | network + offline DOM/form sanity checks |
 | `tests/login.spec.js` | positive login, invalid username, invalid password |
+| `tests/vieneu-studio.spec.js` | a local app: gallery, routing, video decode/seek, provider key masking |
+
+### Testing a local app: VieNeu Studio
+
+`tests/vieneu-studio.spec.js` points at a dubbing studio running on the same
+phone. It is the reference for testing something *local* instead of a public
+site:
+
+```bash
+vieneu-studio start                                   # in another shell
+VIENEU_STUDIO_URL=http://127.0.0.1:7861 npm test -- tests/vieneu-studio.spec.js
+pwterm run examples/vieneu-studio.yaml                # manual smoke, with screenshots
+```
+
+The spec deliberately asserts the things that break silently in a browser:
+the page boots with **no uncaught errors**, the `<video>` reaches
+`readyState >= 2` with a non-zero `videoWidth` (a codec the device cannot
+decode looks fine in the DOM otherwise), byte ranges work so seeking does,
+and API keys never reach the page. It discovers projects through
+`/api/projects` instead of hard-coding ids, and cleans up the throwaway
+project it creates.
+
+`examples/vieneu-studio.yaml` is the CLI counterpart: gallery → open the
+first card → wait for decode → Translate tab → back to the gallery, printing
+`readyState`/`videoWidth` and writing screenshots to `artifacts/`.
 
 `npm start` still runs `index.js`, the original scrape demo that prints a page title.
 
