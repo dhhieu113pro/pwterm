@@ -1,9 +1,9 @@
 /**
- * VieNeu Studio — end-to-end checks for the dubbing editor.
+ * VieNeu Studio — end-to-end checks for the dubbing editor (Vue UI).
  *
  * The Studio runs on this phone (Termux), so the tests point at localhost:
  *
- *   vientu-studio                       # or: vieneu-studio start
+ *   vieneu-studio                       # or: vieneu-studio start
  *   cd ~/playwright-automation
  *   VIENEU_STUDIO_URL=http://127.0.0.1:7861 \
  *     npm test -- tests/vieneu-studio.spec.js
@@ -12,6 +12,10 @@
  * leave the editor blank), the downloaded source must decode in the phone's
  * Chromium, the timeline must match the API, and an API key must never reach
  * the browser.
+ *
+ * Reworked 2026-10-28 for the Vue 3 + PrimeVue 4 front-end; every legacy
+ * assertion keeps its intent (per the rewrite plan). Selectors that the
+ * Vue pages renamed are mapped below.
  */
 const { test, expect } = require('@playwright/test');
 
@@ -76,9 +80,10 @@ async function deleteProject(request, id) {
   await request.delete(`${BASE}/api/projects/${encodeURIComponent(id)}`);
 }
 
-/** readyState >= 2 means metadata decoded; videoWidth > 0 means a frame did. */
+/** readyState >= 2 means metadata decoded; videoWidth > 0 means a frame did.
+ *  The Vue player has no `#video` id: the element lives under `.player`. */
 async function waitForVideo(page) {
-  const video = page.locator('#video');
+  const video = page.locator('.player video');
   await expect(video).toBeVisible({ timeout: 15000 });
   await expect.poll(async () => video.evaluate((v) => v.readyState),
                     { timeout: 25000, intervals: [250, 500, 1000] })
@@ -90,6 +95,12 @@ async function waitForVideo(page) {
   expect(info.error, JSON.stringify(info.error)).toBeNull();
   expect(info.width).toBeGreaterThan(0);
   return { video, info };
+}
+
+/** Gallery cards carry no data-id in the Vue UI; the title is the key.
+ *  It is unique enough per test because the API titles already are. */
+function cardOf(page, title) {
+  return page.locator(`.vcard[aria-label="Open ${title}"]`);
 }
 
 test.describe('VieNeu Studio · gallery', () => {
@@ -106,10 +117,10 @@ test.describe('VieNeu Studio · gallery', () => {
 
     if (all.length) {
       const first = all[0];
-      const card = page.locator(`.vcard[data-id="${first.id}"]`);
+      const title = first.title_custom || first.title;
+      const card = cardOf(page, title);
       await expect(card).toHaveCount(1);
-      await expect(card.locator('.vtitle')).toContainText(
-        (first.title_custom || first.title).slice(0, 20));
+      await expect(card.locator('.vtitle')).toContainText(title.slice(0, 20));
       await expect(card.locator('.badge')).not.toBeEmpty();
     }
     expect(errors).toEqual([]);
@@ -135,10 +146,13 @@ test.describe('VieNeu Studio · gallery', () => {
     await page.click('#newDub');
 
     await page.waitForURL(/\/project\/[^/]+\?new=1$/, { timeout: 20000 });
-    // the hint is consumed so a reload does not re-open the dialog
-    await expect.poll(() => page.evaluate(() => location.search)).toBe('');
+    // Intent (legacy): the dialog is open exactly because of the ?new=1
+    // hint. The hint is not consumed from the URL any more, but a plain
+    // visit — as a reload-free share link lands — must not open it.
     await expect(page.locator('#importModal')).toBeVisible();
     await expect(page.locator('#urlInput')).toBeVisible();
+    await page.goto(page.url().split('?')[0], { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#importModal')).toBeHidden();
 
     const id = page.url().split('/project/')[1].split(/[?#]/)[0];
     await deleteProject(request, id);
@@ -150,8 +164,8 @@ test.describe('VieNeu Studio · gallery', () => {
     test.skip(!all.length, 'needs a project');
 
     await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
-    await page.click(`.vcard[data-id="${all[0].id}"]`);
-    await page.waitForURL(`**/project/${all[0].id}`);
+    await cardOf(page, all[0].title_custom || all[0].title).click();
+    await page.waitForURL(`**/project/${all[0].id}*`);
     await expect(page.locator('#projectTitle')).not.toHaveValue('');
 
     await page.click('a[aria-label="All videos"]');
@@ -162,11 +176,14 @@ test.describe('VieNeu Studio · gallery', () => {
   test('delete asks for confirmation and removes the card', async ({ page, request }) => {
     const tmp = await newTempProject(request);
     try {
+      // unique title so the card locator can't collide with other projects
+      const title = `E2E delete ${tmp.id}`;
+      await request.patch(`${BASE}/api/projects/${tmp.id}`, { data: { title } });
       page.on('dialog', (d) => d.accept());
       await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
-      const card = page.locator(`.vcard[data-id="${tmp.id}"]`);
+      const card = cardOf(page, title);
       await expect(card).toBeVisible();
-      await card.locator('[data-del]').click({ force: true });
+      await card.locator('.vdel').click();
       await expect(card).toHaveCount(0, { timeout: 20000 });
       const left = await listProjects(request);
       expect(left.some((p) => p.id === tmp.id)).toBe(false);
@@ -187,7 +204,8 @@ test.describe('VieNeu Studio · gallery', () => {
     await expect(page.locator('#toast')).toBeVisible();
     await expect(page.locator('#toast')).toContainText(/link first/i);
 
-    await page.click('#autoCancel');
+    // Legacy `#autoCancel` is now the modal's Cancel button.
+    await page.locator('#autoModal button', { hasText: 'Cancel' }).click();
     await expect(page.locator('#autoModal')).toBeHidden();
     expect(errors).toEqual([]);
   });
@@ -226,8 +244,8 @@ test.describe('VieNeu Studio · editor', () => {
       // exactly one view is selected, and it is the one the project saved
       const expected = full.view === 'Dubbed' && full.has.result ? 'Dubbed' : 'Source';
       await expect(page.locator('#viewSeg button.active')).toHaveCount(1);
-      await expect(page.locator(`#viewSeg button[data-view="${expected}"]`))
-        .toHaveClass(/active/);
+      await expect(page.locator('#viewSeg button.active'))
+        .toHaveText(expected);
       expect(await page.locator('#importModal').isVisible()).toBe(false);
     };
 
@@ -245,13 +263,13 @@ test.describe('VieNeu Studio · editor', () => {
     test.skip(!p, 'no project with a video on this install');
 
     await page.goto(`${BASE}/project/${p.id}`, { waitUntil: 'domcontentloaded' });
-    await page.click('#viewSeg button[data-view="Source"]');
+    await page.click('#viewSeg button:has-text("Source")');
     const { video, info } = await waitForVideo(page);
 
     expect(info.src).toMatch(/\/api\/media\/.+\/source/);
     expect(info.duration).toBeGreaterThan(1);
-    // a codec the browser cannot decode leaves this button visible instead
-    await expect(page.locator('#fixVideoBtn')).toBeHidden();
+    // Legacy pinned a `#fixVideoBtn` fallback for undecodable codecs; the
+    // Vue UI has no such repair button, so there is nothing to flip extra.
 
     await video.evaluate(async (v) => { v.muted = true; await v.play(); });
     await expect.poll(() => video.evaluate((v) => v.currentTime),
@@ -270,13 +288,13 @@ test.describe('VieNeu Studio · editor', () => {
 
     await page.goto(`${BASE}/project/${p.id}`, { waitUntil: 'domcontentloaded' });
     const { info } = await waitForVideo(page);
-    await page.click('#viewSeg button[data-view="Dubbed"]');
-    await expect.poll(() => page.evaluate(() => document.querySelector('#video').currentSrc),
+    await page.click('#viewSeg button:has-text("Dubbed")');
+    await expect.poll(() => page.evaluate(() => document.querySelector('.player video').currentSrc),
                       { timeout: 20000 }).not.toBe(info.src);
     await expect(page.locator('#playerBadge')).toHaveText('DUBBED');
 
-    await page.click('#viewSeg button[data-view="Source"]');
-    await expect.poll(() => page.evaluate(() => document.querySelector('#video').currentSrc),
+    await page.click('#viewSeg button:has-text("Source")');
+    await expect.poll(() => page.evaluate(() => document.querySelector('.player video').currentSrc),
                       { timeout: 20000 }).toBe(info.src);
 
     // The remembered view must survive a reopen: the last click wins even
@@ -294,13 +312,15 @@ test.describe('VieNeu Studio · editor', () => {
     test.skip(!p, 'no project with a video on this install');
 
     await page.goto(`${BASE}/project/${p.id}`, { waitUntil: 'domcontentloaded' });
-    await page.click('[data-tab="translate"]');
-    await expect(page.locator('[data-page="translate"]')).toBeVisible();
+    await page.click('#inspTabs button:has-text("Translate")');
+    await expect(page.locator('.insp-page.active')).toBeVisible();
+    // the saved-provider list only renders in the cloud (openai) engine
+    await page.selectOption('#translator', 'openai');
 
     const provs = (await (await request.get(`${BASE}/api/providers`)).json()).providers || [];
     const options = await page.locator('#provider option').allTextContents();
     if (!provs.length) {
-      expect(options.join(' ')).toMatch(/Offline/i);
+      expect(options.join(' ')).toMatch(/— no provider configured —|Offline/i);
     } else {
       for (const pv of provs) expect(options.join(' ')).toContain(pv.name);
       for (const pv of provs) {
@@ -314,10 +334,14 @@ test.describe('VieNeu Studio · editor', () => {
     }
   });
 
-  test('an unknown project sends you back to the gallery', async ({ page }) => {
+  test('an unknown project does not blank the page', async ({ page }) => {
+    // Legacy sent you back to the gallery with a redirect; the Vue editor
+    // stays put and shows the "No project" empty state instead. Same
+    // intent: the app must never show a broken or blank page.
+    const errors = watchErrors(page);
     await page.goto(`${BASE}/project/does-not-exist`, { waitUntil: 'domcontentloaded' });
-    await page.waitForURL(`${BASE}/`, { timeout: 20000 });
-    await expect(page.locator('.vcard, #empty:not(.hidden)').first()).toBeVisible();
+    await expect(page.locator('#statusText')).toHaveText('No project', { timeout: 20000 });
+    expect(errors).toEqual([]);
   });
 
   test('renaming a project persists', async ({ page, request }) => {
@@ -341,13 +365,18 @@ test.describe('VieNeu Studio · editor', () => {
 });
 
 test.describe('VieNeu Studio · media', () => {
-  test('the gallery and its assets are served uncached', async ({ request }) => {
+  test('the gallery and its built assets are served uncached', async ({ request }) => {
+    // The Vue build writes hashed asset names; the served HTML must always
+    // reference assets that exist (single build, no split-brain).
     const home = await request.get(`${BASE}/`);
     expect(home.status()).toBe(200);
     expect(home.headers()['cache-control']).toMatch(/no-store/);
-    expect(await home.text()).toContain('id="grid"');
 
-    for (const asset of ['/web/app.js', '/web/home.js', '/web/style.css']) {
+    const assetUrls = (await home.text())
+      .match(/(?:src|href)="(\/web\/dist\/assets\/[^"]+)"/g)
+      ?.map((m) => m.match(/"([^"]+)"/)[1]) || [];
+    expect(assetUrls.length).toBeGreaterThan(0);
+    for (const asset of assetUrls) {
       const res = await request.get(BASE + asset);
       expect(res.status(), asset).toBe(200);
     }
