@@ -145,7 +145,7 @@ test.describe('gallery on a touch screen', () => {
     await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('.vcard');
 
-    const card = page.locator(`.vcard[data-id="${project.id}"]`);
+    const card = page.locator(`.vcard:has-text("${project.title}")`);
     const del = card.locator('.vdel');
     await expect(del).toBeVisible();
     const box = await del.boundingBox();
