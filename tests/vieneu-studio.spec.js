@@ -382,3 +382,207 @@ test.describe('VieNeu Studio · media', () => {
     }
   });
 });
+
+test.describe('VieNeu Studio · subtitle preview', () => {
+  /** Seek the player's <video> to t and let timeupdate settle. */
+  const seek = (page, t) => page.evaluate((at) => {
+    document.querySelector('video').currentTime = at;
+  }, t);
+
+  test('shows the active Vietnamese cue and hides in gaps', async ({ page, request }) => {
+    const full = await projectWithVideo(request);
+    test.skip(!full, 'no project with a video on this install');
+    const cue = full.cues[1];
+    test.skip(!cue, 'project has fewer than two cues');
+    const errors = watchErrors(page);
+
+    await page.goto(`${BASE}/project/${full.id}`, { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#cueLane .cue').first()).toBeVisible({ timeout: 20000 });
+    // before any seek: no cue is active, nothing may render
+    await expect(page.locator('.subs')).toHaveCount(0);
+
+    await seek(page, (cue.start + cue.end) / 2);
+    await expect(page.locator('.subs')).toHaveText(cue.text.trim());
+
+    // a real gap in this project's data: before the first cue, else between
+    // cues (SRTs tile back-to-back, so "cue.end + 2" is usually the next cue)
+    const gap = full.cues[0].start > 0.15
+      ? 0.05
+      : full.cues.slice(1).map((c, i) => ({ a: full.cues[i].end, b: c.start }))
+          .find((g) => g.b - g.a > 0.5)?.a + 0.2;
+    test.skip(gap === undefined, 'cues are contiguous — no gap exists');
+    await seek(page, gap);
+    await expect(page.locator('.subs')).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
+  test('own controls: play/pause, mute, scrub, double-tap, auto-hide', async ({ page, request }) => {
+    const full = await projectWithVideo(request);
+    test.skip(!full, 'no project with a video on this install');
+    const errors = watchErrors(page);
+    await page.goto(`${BASE}/project/${full.id}`, { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#cueLane .cue').first()).toBeVisible({ timeout: 20000 });
+    const video = page.locator('video');
+    await video.waitFor({ state: 'visible', timeout: 15000 });
+    expect(await video.getAttribute('controls')).toBeNull();   // native bar gone
+
+    const bar = page.locator('#playerWrap .bar');
+    await bar.locator('button[aria-label="Play"]').click();
+    await expect.poll(() => video.evaluate((v) => v.paused)).toBe(false);
+    await bar.locator('button[aria-label="Pause"]').click();
+    await expect.poll(() => video.evaluate((v) => v.paused)).toBe(true);
+
+    // double-tap the right side = +10 s (clamped inside the video).
+    // The seek is a TOUCH gesture (desktop dblclick means fullscreen), so
+    // drive the handler the way a phone does: two touch pointerdowns.
+    await page.evaluate(() => { document.querySelector('video').currentTime = 3; });
+    const t0 = await video.evaluate((v) => v.currentTime);
+    await page.evaluate(() => {
+      const stage = document.querySelector('#playerWrap .pstage');
+      const r = stage.getBoundingClientRect();
+      const at = () => stage.dispatchEvent(new PointerEvent('pointerdown', {
+        bubbles: true, pointerType: 'touch', isPrimary: true,
+        clientX: r.right - 40, clientY: r.top + 60 }));
+      at();
+      setTimeout(at, 120);
+    });
+    await expect.poll(async () => video.evaluate((v) => v.currentTime),
+                      { timeout: 5000 }).toBeGreaterThan(t0 + 5);
+
+    // the thin line scrubs: clicking at 60% of its width seeks ~60%
+    const line = page.locator('#playerWrap .scrub');
+    const box = await line.boundingBox();
+    await page.mouse.click(box.x + box.width * 0.6, box.y + box.height / 2);
+    const dur = await video.evaluate((v) => v.duration);
+    await expect.poll(async () => video.evaluate((v) => v.currentTime),
+                      { timeout: 5000 }).toBeGreaterThanOrEqual(dur * 0.45);
+
+    // chrome auto-hides while playing once the pointer leaves the player
+    // (desktop: hover keeps chrome visible), and returns on pointer move
+    await bar.locator('button[aria-label="Play"]').click();
+    await page.mouse.move(5, 5);                       // cursor away from the player
+    // 9s: the hide timer is 2.5s in-app, but parallel workers on one phone
+    // can delay the callback well past that — the poll window must cover it
+    await expect(bar).toBeHidden({ timeout: 9000 });
+    await page.mouse.move(box.x, box.y - 30);          // back over the stage
+    await expect(bar).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
+  test('keyboard edits a cue, not the player, while typing', async ({ page, request }) => {
+    const full = await projectWithVideo(request);
+    test.skip(!full, 'no project with a video on this install');
+    await page.goto(`${BASE}/project/${full.id}`, { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#cueLane .cue').first()).toBeVisible({ timeout: 20000 });
+    const cur = () => page.evaluate(() => document.querySelector('video').currentTime);
+    const t0 = await cur();
+    const orig = await page.inputValue('#projectTitle');
+    await page.fill('#projectTitle', 'x');                     // text field focus
+    try {
+      await page.keyboard.press('ArrowRight');
+      await page.keyboard.press('ArrowRight');
+      expect(await cur()).toBe(t0);                            // typing owns the keys
+    } finally {
+      await page.fill('#projectTitle', orig);
+    }
+    await page.evaluate(() => document.querySelector('#projectTitle').blur());
+    await page.keyboard.press('ArrowRight');                   // outside inputs: +5 s (spec)
+    await expect.poll(cur, { timeout: 5000 }).toBeGreaterThan(t0);
+  });
+
+  test('resize keeps the subtitle legible; fullscreen keeps it interactive',
+       async ({ page, request }) => {
+    const full = await projectWithVideo(request);
+    test.skip(!full, 'no project with a video on this install');
+    const errors = watchErrors(page);
+    await page.goto(`${BASE}/project/${full.id}`, { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#cueLane .cue').first()).toBeVisible({ timeout: 20000 });
+    const cue = full.cues[0];
+    await page.evaluate((c) => {
+      document.querySelector('video').currentTime = (c.start + c.end) / 2;
+    }, cue);
+
+    for (const [w, h] of [[360, 800], [1280, 800], [1280, 1600]]) {
+      await page.setViewportSize({ width: w, height: h });
+      await page.waitForTimeout(300);
+      const s = await page.locator('.subs').boundingBox();
+      const p = await page.locator('#playerWrap').boundingBox();
+      expect(s, `at ${w}x${h} the subtitle left the player box`).toBeTruthy();
+      expect(s.y, `at ${w}x${h}`).toBeGreaterThan(p.y);
+      expect(s.y + s.height, `at ${w}x${h}`).toBeLessThan(p.y + p.height);
+    }
+
+    await page.click('#playerWrap .bar button[aria-label="Fullscreen"]');
+    await expect.poll(() => page.evaluate(() => !!document.fullscreenElement))
+      .toBe(true);
+    await expect(page.locator('.subs')).toBeVisible();
+    await expect(page.locator('#playerWrap .bar')).toBeVisible();
+    await page.evaluate(() => document.exitFullscreen());
+    await expect.poll(() => page.evaluate(() => !!document.fullscreenElement))
+      .toBe(false);
+    await expect(page.locator('.subs')).toBeVisible();   // restored, no reload
+    expect(errors).toEqual([]);
+  });
+
+  test('the CC toggle hides the overlay and persists as a project setting',
+       async ({ page, request }) => {
+    const full = await projectWithVideo(request);
+    test.skip(!full, 'no project with a video on this install');
+    const cue = full.cues[1];
+    test.skip(!cue, 'project has fewer than two cues');
+    const errors = watchErrors(page);
+    const opts = async () => (await (await request.get(
+      `${BASE}/api/projects/${full.id}`)).json()).options;
+    await page.goto(`${BASE}/project/${full.id}`, { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#cueLane .cue').first()).toBeVisible({ timeout: 20000 });
+    await seek(page, (cue.start + cue.end) / 2);
+    await expect(page.locator('.subs')).toHaveText(cue.text.trim());
+
+    await page.click('#playerWrap .bar button[aria-label="Subtitles"]');
+    await expect(page.locator('.subs')).toHaveCount(0);       // off, immediately
+    // rides the debounced PATCH: the project stores subs=false
+    await expect.poll(opts).toEqual(expect.objectContaining({ subs: false }));
+
+    await page.reload({ waitUntil: 'domcontentloaded' });     // still off next visit
+    await expect(page.locator('#cueLane .cue').first()).toBeVisible({ timeout: 20000 });
+    await seek(page, (cue.start + cue.end) / 2);
+    await expect(page.locator('.subs')).toHaveCount(0);
+
+    await page.click('#playerWrap .bar button[aria-label="Subtitles"]');  // on again
+    await expect(page.locator('.subs')).toHaveText(cue.text.trim());
+    await expect.poll(opts).toEqual(expect.objectContaining({ subs: true }));
+    expect(errors).toEqual([]);
+  });
+
+  test('an edited cue shows its new text (live script)', async ({ page, request }) => {
+    const full = await projectWithVideo(request);
+    test.skip(!full, 'no project with a video on this install');
+    const cue = full.cues[1];
+    test.skip(!cue, 'project has fewer than two cues');
+    const errors = watchErrors(page);
+
+    const srt = (fn) => full.cues.map((c, i) => {
+      const fmt = (s) => {
+        const [h, m, rest] = [Math.floor(s / 3600), Math.floor((s % 3600) / 60), s % 60];
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:` +
+               `${rest.toFixed(3).padStart(6, '0').replace('.', ',')}`;
+      };
+      return `${i + 1}\n${fmt(c.start)} --> ${fmt(c.end)}\n${fn(c, i)}\n`;
+    }).join('\n');
+    const edited = `${cue.text} (wys)`;
+    const res = await request.put(`${BASE}/api/projects/${full.id}/script`,
+      { data: { srt: srt((c, i) => (i === 1 ? edited : c.text)) } });
+    expect(res.ok(), await res.text()).toBeTruthy();
+    try {
+      await page.goto(`${BASE}/project/${full.id}`, { waitUntil: 'domcontentloaded' });
+      await expect(page.locator('#cueLane .cue').first()).toBeVisible({ timeout: 20000 });
+      await seek(page, (cue.start + cue.end) / 2);
+      await expect(page.locator('.subs')).toHaveText(edited);
+      expect(errors).toEqual([]);
+    } finally {
+      const back = await request.put(`${BASE}/api/projects/${full.id}/script`,
+        { data: { srt: srt((c) => c.text) } });
+      expect(back.ok()).toBeTruthy();
+    }
+  });
+});
