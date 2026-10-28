@@ -38,7 +38,14 @@ test('boots a project: title, status, video, timeline, no script errors', async 
   }
 
   const d = detail.source?.duration || 0;
-  if (d) await expect(page.locator('#timeline .ruler span').first()).toBeVisible();
+  if (d) {
+    // legacy ruler contract: ticks carry .tick (positioned) and majors alternate in
+    const ruler = page.locator('#timeline .ruler');
+    expect(await ruler.locator('.tick').count(), 'ruler must show positioned tick labels')
+      .toBeGreaterThan(0);
+    expect(await ruler.locator('.tick.major').count(), 'every other tick is major')
+      .toBeGreaterThan(0);
+  }
 
   // the modal open in a fresh visit (?new=1 flow)
   await page.goto(`${BASE}/project/new`, { waitUntil: 'domcontentloaded' });
