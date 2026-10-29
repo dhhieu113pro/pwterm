@@ -586,3 +586,208 @@ test.describe('VieNeu Studio · subtitle preview', () => {
     }
   });
 });
+
+test.describe('VieNeu Studio · project steps bar', () => {
+  /**
+   * The bar derives every state from project JSON + the job's pipeline rows
+   * (server `_project_json`/`_reviewed` → EditorPage `steps`). Real pipelines
+   * need downloads, AI keys and minutes of TTS, so these tests craft the same
+   * state on disk instead: a project JSON cloned from a real one (source
+   * video, script and dub all point at existing files, only script/lang are
+   * swapped to a tiny hand-made SRT) plus, for the pipeline cases, a job JSON
+   * in the Studio's job folder — a disk job with status `running`/`error` is
+   * inert (the worker only launches ones queued in memory). Project and job
+   * files are deleted after every test.
+   */
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const os = require('node:os');
+  const crypto = require('node:crypto');
+
+  const STUDIO_DIR = process.env.VIENEU_STUDIO_DIR ||
+    path.join(os.homedir(), '.local', 'share', 'vieneu', 'studio');
+  const PROJECTS_DIR = path.join(STUDIO_DIR, 'projects');
+  const JOBS_DIR = path.join(STUDIO_DIR, 'jobs');
+  const LABELS = { download: 'Download', transcribe: 'Transcript',
+                   translate: 'Translate', review: 'AI Review', dub: 'Dub' };
+
+  /** A tiny two-cue Vietnamese script: fast to render, easy to hand-edit. */
+  const SCRIPT = '1\n00:00:01,000 --> 00:00:04,000\nĐây là dòng một, rất ngắn.\n'
+    + '\n2\n00:00:05,500 --> 00:00:08,000\nVà dòng hai trong đoạn kiểm tra.\n';
+  const sig = (t) => crypto.createHash('sha1').update(t, 'utf8')
+    .digest('hex').slice(0, 16);
+  const made = { pid: null, jobId: null };
+
+  test.afterEach(async ({ request }) => {
+    if (made.pid) await request.delete(`${BASE}/api/projects/${made.pid}`);
+    try { fs.unlinkSync(path.join(JOBS_DIR, `${made.jobId}.json`)); } catch {}
+    made.pid = made.jobId = null;
+  });
+
+  /** Donor: a real on-disk project with a playable video AND a rendered dub,
+   *  so "Dubbing" can show done. The suite skips when none exists. */
+  function donor() {
+    if (!fs.existsSync(PROJECTS_DIR)) return null;
+    for (const f of fs.readdirSync(PROJECTS_DIR).sort().reverse()) {
+      try {
+        const p = JSON.parse(fs.readFileSync(path.join(PROJECTS_DIR, f), 'utf8'));
+        if (fs.existsSync((p.source || {}).video || '')
+            && fs.existsSync(((p.outputs || {}).video) || '')) return p;
+      } catch { /* unreadable file: try the next */ }
+    }
+    return null;
+  }
+
+  const stage = (key, status, progress = 0) =>
+    ({ key, label: LABELS[key] || key, status, progress });
+
+  /** Push a job record straight into the Studio's job folder. */
+  function craftJob(id, stages, { status = 'running', progress = 0.5 } = {}) {
+    const live = stages.find((s) => s.status === 'running') || {};
+    const job = {
+      id, kind: 'pipeline', title: 'steps-bar test', source: '',
+      status, stage: live.key || '', progress,
+      created: Date.now() / 1000 - 10, params: {}, log: [],
+      pipeline: { stage: live.key || '', stages },
+    };
+    fs.writeFileSync(path.join(JOBS_DIR, `${id}.json`), JSON.stringify(job));
+    made.jobId = id;
+    return job;
+  }
+
+  /** Create a project through the API, then overwrite its JSON with a clone
+   *  of the donor. The server re-reads files per request, so the next GET
+   *  (page load or poll) sees the crafted state. */
+  async function craft(request, { reviewed = false, script = SCRIPT,
+                                  lang = 'vi', clearOutputs = false, job = null } = {}) {
+    const don = donor();
+    test.skip(!don, 'no on-disk project with a video and a dub to clone');
+    const res = await request.post(`${BASE}/api/projects`);
+    expect(res.ok(), await res.text()).toBeTruthy();
+    const pid = (await res.json()).id;
+    expect(pid).toBeTruthy();
+    const p = JSON.parse(JSON.stringify(don));
+    p.id = pid;
+    p.script = script; p.original = ''; p.lang = lang;
+    if (clearOutputs) { p.outputs = {}; p.result = {}; }
+    delete p.reviewed_sig; delete p.reviewed_at;
+    if (reviewed) { p.reviewed_sig = sig(script); p.reviewed_at = Date.now() / 1000; }
+    if (job) p.job = job.id;
+    fs.writeFileSync(path.join(PROJECTS_DIR, `${pid}.json`), JSON.stringify(p));
+    made.pid = pid;
+    return pid;
+  }
+
+  const openEditorSteps = async (page, pid) => {
+    await page.goto(`${BASE}/project/${pid}`, { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('nav.steps .step')).toHaveCount(5, { timeout: 20000 });
+    return page.locator('nav.steps .step');
+  };
+  /** One step read as one word: aria-label "Label: word" lives on the step. */
+  const stepOf = (page, label, word) =>
+    page.locator(`nav.steps .step[aria-label="${label}: ${word}"]`);
+
+  test('a finished, reviewed project lights all five steps done', async ({ page, request }) => {
+    const pid = await craft(request, { reviewed: true });
+    const steps = await openEditorSteps(page, pid);
+    for (const [label, word] of [['Download', 'done'], ['Transcript', 'done'],
+                                 ['Translate', 'done'], ['Reviewed', 'done'],
+                                 ['Dubbing', 'done']])
+      await expect(stepOf(page, label, word), `${label} must read done`).toHaveCount(1);
+    expect(await steps.evaluateAll((els) =>
+      els.every((el) => el.classList.contains('done')))).toBe(true);
+  });
+
+  test('a hand-edit in one cue drops the Reviewed tick — a fingerprint, not a flag',
+       async ({ page, request }) => {
+    const pid = await craft(request, { reviewed: true });
+    const steps = await openEditorSteps(page, pid);
+    await expect(stepOf(page, 'Reviewed', 'done'), 'starts Reviewed: done').toBeVisible();
+
+    await page.click('#addCueBtn');               // a new hand-made line
+    const cueText = page.locator('#cueText');
+    await expect(cueText).toBeVisible({ timeout: 15000 });
+    await cueText.fill('Câu đã sửa tay — dấu Reviewed phải rơi.');
+
+    const detail = () => projectDetail(request, pid);
+    await expect.poll(async () => (await detail()).reviewed,
+                      { timeout: 10000, intervals: [500, 1000, 2000] }).toBe(false);
+    await expect(stepOf(page, 'Reviewed', 'pending'), 'the tick must drop').toBeVisible();
+    await expect(stepOf(page, 'Transcript', 'done'),
+                 'editing text keeps the transcript step done').toBeVisible();
+  });
+
+  test('a Vietnamese script that was never reviewed: Translate done, Review pending',
+       async ({ page, request }) => {
+    const pid = await craft(request, { reviewed: false });
+    await openEditorSteps(page, pid);
+    for (const [label, word] of [['Transcript', 'done'], ['Translate', 'done'],
+                                 ['Reviewed', 'pending']])
+      await expect(stepOf(page, label, word), `${label} must read ${word}`).toBeVisible();
+  });
+
+  test('a pipeline that skipped the review shows it dim, not done', async ({ page, request }) => {
+    const job = craftJob(`sb-${Date.now()}-skp`, [
+      stage('download', 'done', 1), stage('transcribe', 'done', 1),
+      stage('translate', 'done', 1), stage('review', 'skipped'),
+      stage('dub', 'running', 0.42)]);
+    const pid = await craft(request, { job });
+    await openEditorSteps(page, pid);
+    for (const [label, word] of [['Download', 'done'], ['Transcript', 'done'],
+                                 ['Translate', 'done'], ['Reviewed', 'skipped'],
+                                 ['Dubbing', 'running']])
+      await expect(stepOf(page, label, word), `${label} must read ${word}`).toBeVisible();
+  });
+
+  test('a pipeline that fails mid-run: red on the failed step, later steps not green',
+       async ({ page, request }) => {
+    const job = craftJob(`sb-${Date.now()}-err`, [
+      stage('download', 'done', 1), stage('transcribe', 'done', 1),
+      stage('translate', 'error'), stage('review', 'skipped'),
+      stage('dub', 'skipped')], { status: 'error', progress: 0.55 });
+    const pid = await craft(request, { job });
+    const steps = await openEditorSteps(page, pid);
+    await expect(stepOf(page, 'Translate', 'failed'),
+                 'the failing step must read failed').toBeVisible();
+    const states = await steps.evaluateAll((els) =>
+      els.map((el) => [...el.classList].find((c) => c !== 'step')));
+    expect(states, 'download/transcribe done, translate failed').toEqual(
+      ['done', 'done', 'error', 'skipped', 'skipped']);
+  });
+
+  test('a lone running job lights exactly its own step', async ({ page, request }) => {
+    const job = craftJob(`sb-${Date.now()}-lone`, [], { status: 'running' });
+    job.kind = 'transcribe';
+    fs.writeFileSync(path.join(JOBS_DIR, `${job.id}.json`), JSON.stringify(job));
+    const pid = await craft(request, { lang: '', script: '', clearOutputs: true, job });
+    const steps = await openEditorSteps(page, pid);
+    const states = await steps.evaluateAll((els) =>
+      els.map((el) => [...el.classList].find((c) => c !== 'step')));
+    expect(states, 'download done, transcribe live, everything else pending').toEqual(
+      ['done', 'running', 'pending', 'pending', 'pending']);
+  });
+
+  test('five steps stay legible and inside the row at 360 px', async ({ page, request }) => {
+    const pid = await craft(request, { reviewed: true });
+    await page.setViewportSize({ width: 360, height: 800 });
+    const steps = await openEditorSteps(page, pid);
+    const bar = await steps.evaluateAll((els) => {
+      const nav = els[0].parentElement.getBoundingClientRect();
+      return {
+        navRight: Math.round(nav.right),
+        overflow: els.filter((el) => {
+          const b = el.getBoundingClientRect();
+          return b.width <= 0 || b.right > nav.right + 1 || b.left < nav.left - 1;
+        }).map((el) => el.ariaLabel),
+        labels: els.map((el) => {
+          const l = el.querySelector('.lbl');
+          return l ? Math.round(l.getBoundingClientRect().width) : 0;
+        }),
+      };
+    });
+    expect(bar.navRight, 'the strip must not overflow the viewport')
+      .toBeLessThanOrEqual(361);
+    expect(bar.overflow, 'a step is clipped or empty').toEqual([]);
+    expect(bar.labels.some((w) => w < 20), 'a label is unreadably narrow').toBe(false);
+  });
+});
