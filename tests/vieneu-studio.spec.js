@@ -791,3 +791,181 @@ test.describe('VieNeu Studio · project steps bar', () => {
     expect(bar.labels.some((w) => w < 20), 'a label is unreadably narrow').toBe(false);
   });
 });
+
+test.describe('VieNeu Studio · compose', () => {
+  test.describe.configure({ mode: 'serial' }); // the clone swap below must not race the other tests
+  /**
+   * /compose is a review surface over DRAFTS OpenCode publishes into the
+   * auto-video-gen clone (`output/<slug>/script.json`). The MCP never runs
+   * here: every draft is published through the same `PUT /api/compose/<slug>`
+   * route the validator lives behind, with the spec's minimal valid 5-scene
+   * script. afterEach deletes the slug exactly like the steps-bar tests
+   * clean their crafted projects; one block-level test swaps the clone dir
+   * away to reproduce the "clone missing" state and restores it after.
+   */
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const os = require('node:os');
+
+  const CLONE = path.join(os.homedir(), 'auto-video-gen');
+  const LOCKED = `${CLONE}.pw-away`;
+
+  /** The spec's minimal valid script: 5 scenes, first hook, last outro,
+   *  every field inside the shared limits table (limits live in
+   *  video-mcp/compose.py; nothing here re-states them). */
+  const MINIMAL = () => ({
+    version: '1.0',
+    metadata: {
+      title: 'Compose e2e', channel: 'VieNeu',
+      source: { url: 'https://example.com/watch', domain: 'example.com', image: null },
+    },
+    voice: { provider: 'edge', voiceId: 'vi-VN-HoaiMyNeural', speed: 1 },
+    scenes: [
+      { id: 's1', type: 'hook', voiceText: 'Phan mo dau rat ngan',
+        templateData: { template: 'hook', headline: 'Draft for the e2e run' } },
+      { id: 's2', type: 'body', voiceText: 'Phan hai nho bang nam bocong',
+        templateData: { template: 'stat-hero', value: '42%', label: 'Small phone renders' } },
+      { id: 's3', type: 'body', voiceText: 'Phan ba nho bang nam bocong',
+        templateData: { template: 'feature-list', title: 'Why it works', bullets: ['Faster', 'Cheaper'] } },
+      { id: 's4', type: 'body', voiceText: 'Phan bon nho bang nam bocong',
+        templateData: { template: 'callout', statement: 'One sentence, at most eighty chars.', tag: 'e2e' } },
+      { id: 's5', type: 'outro', voiceText: 'Cam on va hen gap lai',
+        templateData: { template: 'outro', ctaTop: 'Subscribe', channelName: 'VieNeu', source: 'example.com' } },
+    ],
+  });
+
+  let draft = null;                 // the slug under test
+
+  test.beforeEach(async ({ request }) => {
+    test.skip(!fs.existsSync(CLONE) && !fs.existsSync(LOCKED),
+              'auto-video-gen clone not set up yet');
+    if (!fs.existsSync(CLONE)) return;   // the clone-missing test manages its own state
+    draft = `e2e-${Date.now().toString(36)}`;
+    if (fs.existsSync(`${CLONE}/output/${draft}`)) draft = `${draft}-x`;
+    const res = await request.put(`${BASE}/api/compose/${draft}`, {
+      data: { script: MINIMAL() },
+    });
+    expect(res.ok(), await res.text()).toBeTruthy();
+  });
+
+  test.afterEach(async ({ request }) => {
+    if (draft) await request.delete(`${BASE}/api/compose/${draft}`);
+    draft = null;
+  });
+
+  test.afterAll(() => {
+    if (fs.existsSync(LOCKED)) fs.renameSync(LOCKED, CLONE);   // always restore
+  });
+
+  function cardOf(page, slugText) {
+    return page.locator('.comp-card', { hasText: slugText });
+  }
+
+  test('the list page renders a published draft card with a tap-sized delete',
+       async ({ page }) => {
+    const errors = watchErrors(page);
+    await page.goto(`${BASE}/compose`, { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('.comp-card');
+    const card = cardOf(page, draft);
+    await expect(card).toHaveCount(1);
+    await expect(card).toContainText('5 scenes');
+    const del = card.locator('.vdel');
+    const box = await del.boundingBox();
+    expect(box && Math.min(box.width, box.height), 'the delete target is tap-sized')
+      .toBeGreaterThanOrEqual(36);
+    expect(errors).toEqual([]);
+  });
+
+  test('opening ?slug= shows the draft JSON in a plain-on-errors textarea',
+       async ({ page }) => {
+    const errors = watchErrors(page);
+    await page.goto(`${BASE}/compose?slug=${draft}`, { waitUntil: 'domcontentloaded' });
+    const text = await page.waitForSelector('#composeJson').then((el) => el.inputValue());
+    expect(text, 'the draft is the poem-sized JSON, not a form').toContain('"version": "1.0"');
+    expect(text).toContain('Draft for the e2e run');
+    expect(errors).toEqual([]);
+  });
+
+  test('an invalid edit shows the validator note and nothing is written',
+       async ({ page }) => {
+    const errors = watchErrors(page);
+    await page.goto(`${BASE}/compose?slug=${draft}`, { waitUntil: 'domcontentloaded' });
+    const before = await page.inputValue('#composeJson');
+    // one char over the hook headline limit (40) — the shared validator must say where
+    await page.fill('#composeJson', before.replace('Draft for the e2e run', 'D'.repeat(44)));
+    await page.click('.comp-actions button:has-text("Validate")');
+    await expect(page.locator('.comp-note.err')).toContainText(
+      /scenes\[0\][\s\S]*44 chars.* > 40|scenes\[0\]\.templateData\.headline/);
+
+    // reload: the page must show the FILE (untouched), not the half-written edit
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('#composeJson');
+    expect(await page.inputValue('#composeJson'), 'a pending edit never auto-writes')
+      .toBe(before);
+    expect(errors).toEqual([]);
+  });
+
+  test('a valid edit saved is seen by a fresh tab', async ({ page, browser }) => {
+    const errors = watchErrors(page);
+    await page.goto(`${BASE}/compose?slug=${draft}`, { waitUntil: 'domcontentloaded' });
+    const before = await page.inputValue('#composeJson');
+    await page.fill('#composeJson', before.replace('Draft for the e2e run', 'Saved by e2e run'));
+    await page.click('.comp-actions button:has-text("Save")');
+    await expect(page.locator('.comp-note.ok, .comp-note.err')).toHaveCount(1);
+
+    const page2 = await browser.newContext().then((c) => c.newPage());
+    const errors2 = watchErrors(page2);
+    await page2.goto(`${BASE}/compose?slug=${draft}`, { waitUntil: 'domcontentloaded' });
+    const text = await page2.waitForSelector('#composeJson').then((el) => el.inputValue());
+    expect(text, 'the save must reach the file, not just this tab').toContain('Saved by e2e run');
+    expect(errors2).toEqual([]);
+    await page2.context().close();
+    expect(errors).toEqual([]);
+  });
+
+  test('the delete control removes the card, confirm included', async ({ page, request }) => {
+    const errors = watchErrors(page);
+    await page.goto(`${BASE}/compose`, { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('.comp-card');
+    const gone = draft;                 // this slug's only cleanup hop
+    page.on('dialog', (d) => d.accept());
+    await cardOf(page, gone).locator('.vdel').click();
+    await expect(page.locator('#toast:not(.hidden)')).toBeVisible();
+    await expect(cardOf(page, gone)).toHaveCount(0);
+    const res = await request.get(`${BASE}/api/compose/${gone}`);
+    expect(res.status(), 'the draft is really gone from the API too').toBe(404);
+    draft = null;                       // afterEach would double-delete (harmless, but honest)
+    expect(errors).toEqual([]);
+  });
+
+  test('a mid-flow error (deleting an already-deleted slug) surfaces the toast',
+       async ({ page, request }) => {
+    const errors = watchErrors(page);
+    await page.goto(`${BASE}/compose`, { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('.comp-card');
+    // another actor wins the race: the slug vanishes before the delete click
+    await request.delete(`${BASE}/api/compose/${draft}`);
+    page.on('dialog', (d) => d.accept());
+    await cardOf(page, draft).locator('.vdel').click();
+    await expect(page.locator('#toast:not(.hidden)')).toBeVisible();
+    await expect(page.locator('#app')).toBeVisible();   // a toast, NOT a blank page
+    draft = null;
+    expect(errors).toEqual([]);
+  });
+
+  test('without the clone the page shows the one-liner hint, no editor',
+       async ({ page }) => {
+    test.skip(!fs.existsSync(CLONE), 'no clone present to lock away');
+    const errors = watchErrors(page);
+    fs.renameSync(CLONE, LOCKED);       // cleared in afterAll on any path
+    try {
+      await page.goto(`${BASE}/compose`, { waitUntil: 'domcontentloaded' });
+      await page.waitForSelector('.comp-hint');
+      await expect(page.locator('.comp-hint')).toContainText(/setup-termux\.sh/);
+      await expect(page.locator('#composeJson')).toHaveCount(0);
+      expect(errors).toEqual([]);
+    } finally {
+      if (fs.existsSync(LOCKED)) fs.renameSync(LOCKED, CLONE);
+    }
+  });
+});
