@@ -33,9 +33,10 @@ test('shell, sample text and real voice list load', async ({ page, request }) =>
   await test.expect(page.locator('.status-txt')).toContainText(api.engine);
 });
 
-test('gender filter uses the engine labels', async ({ page, request }) => {
+test('gender filter uses the engine gender field', async ({ page, request }) => {
   const api = await voices(request);
-  const females = api.voices.filter((v) => /—\s*Nữ\b/.test(v.label)).length;
+  // the server returns the SDK's gender — the UI shows exactly those groups
+  const females = api.voices.filter((v) => v.gender === 'female').length;
   const males = api.voices.length - females;
   test.expect(females + males).toBeGreaterThan(0);
   await page.goto(`${BASE}/voice`);
@@ -66,6 +67,24 @@ test('clear keeps an undo, clean normalizes, stats follow the text', async ({ pa
   await test.expect(page.locator('.e-text')).toHaveValue('a b\n\nc, d');
 });
 
+test('spinner paints inside the play button while generating (no legacy .spin ring)', async ({ page }) => {
+  await page.goto(`${BASE}/voice`);
+  await page.locator('.e-text').fill('Kiểm tra trạng thái đang tạo.');
+  await page.getByRole('button', { name: 'Tạo giọng đọc' }).click();
+  const svg = page.locator('.pl-btn svg.spin, .pl-btn svg[class*="spin"]').first();
+  await svg.waitFor({ state: 'attached', timeout: 10_000 });
+  // the legacy shared .spin rule (position:absolute + 34px border ring) must
+  // not leak onto the svg-arc spinner: it paints the button as a bare circle
+  const cs = await svg.evaluate(s => {
+    const c = getComputedStyle(s);
+    return { pos: c.position, border: c.borderLeftWidth, size: c.width };
+  });
+  await test.expect(cs.pos).toBe('static');
+  await test.expect(cs.border).toBe('0px');
+  const box = await svg.boundingBox();
+  await test.expect(box && box.width >= 16, 'spinner arc painted (~22px wide)').toBe(true);
+});
+
 test('generate produces real preview audio and the player follows', async ({ page }) => {
   await page.goto(`${BASE}/voice`);
   await page.locator('.e-text').fill('Kiểm tra phát âm từ CIT Voice Studio.');
@@ -86,13 +105,64 @@ test('generate produces real preview audio and the player follows', async ({ pag
     .toContainText('MP3 — chưa được hỗ trợ');
 });
 
+test('Play regenerates after text changes (stale audio is re-rendered)', async ({ page }) => {
+  await page.goto(`${BASE}/voice`);
+  await page.locator('.e-text').fill('Bản ghi gốc trước khi chỉnh sửa.');
+  await page.getByRole('button', { name: 'Tạo giọng đọc' }).click();
+  const audio = page.locator('audio[src*="/api/preview/"]');
+  await audio.waitFor({ state: 'attached', timeout: 60_000 });
+  const oldSrc = await audio.getAttribute('src');
+  // after auto-play ends the button is Phát again — replaying the same clip
+  // (same text/voice) must NOT re-render: the src stays identical
+  await page.getByRole('button', { name: 'Phát', exact: true }).click();
+  await test.expect(audio).toHaveAttribute('src', oldSrc);
+  await test.expect(page.locator('.p-stat')).toContainText('Đang phát', { timeout: 10_000 });
+  // changed text: the next Phát must re-render, not replay the stale clip
+  await page.locator('.e-text').fill('Bản ghi đã sửa về giới thiệu sản phẩm mới.');
+  await page.getByRole('button', { name: 'Phát', exact: true }).click();
+  await test.expect(page.locator('.pl-btn')).toHaveAttribute('aria-busy', 'true');
+  await test.expect.poll(async () => {
+    const el = page.locator('audio');
+    return (await el.count()) ? await el.getAttribute('src') : '';
+  }, { timeout: 60_000 }).not.toBe(oldSrc);
+  await test.expect(page.locator('.p-stat')).toContainText('Đang phát', { timeout: 10_000 });
+});
+
+test('fresh page: Phát previews the selected voice (busy → audio → visual)', async ({ page }) => {
+  await page.goto(`${BASE}/voice`);
+  const text = `Chạy thử nút phát ${Date.now()}.`;
+  await page.locator('.e-text').fill(text);
+  // user picks a voice in the panel, then presses the player's Phát directly
+  await page.locator('.v-list .voice').nth(0).click();
+  const pl = page.locator('.pl-btn');
+  await pl.click();
+  // busy state while the engine renders, then the audio element arrives
+  await test.expect(pl).toHaveAttribute('aria-busy', 'true', { timeout: 5_000 });
+  const audio = page.locator('audio[src*="/api/preview/"]');
+  await audio.waitFor({ state: 'attached', timeout: 60_000 });
+  // auto-play once ready — status flips without a second click
+  await test.expect(page.locator('.p-stat')).toContainText('Đang phát', { timeout: 10_000 });
+  // audio visual: 64 bars render and the progress marker advances
+  await test.expect(page.locator('.wbar')).toHaveCount(64);
+  await test.expect.poll(async () =>
+    Number(await page.locator('.wave').getAttribute('aria-valuenow')), { timeout: 15_000 })
+    .toBeGreaterThan(0);
+});
+
 test('model dialog and theme toggle work', async ({ page }) => {
   await page.goto(`${BASE}/voice`);
   await page.getByRole('button', { name: 'Đổi mô hình' }).click();
   await test.expect(page.locator('.dialog .d-head h2')).toHaveText('Đổi mô hình');
   await test.expect(page.getByRole('button', { name: 'Áp dụng' })).toBeDisabled();
+  // dialog focus: focus moves inside the dialog on open —
+  await test.expect.poll(() => page.evaluate(() =>
+    document.activeElement?.closest('.dialog') !== null), { timeout: 5_000 }).toBe(true);
+  await test.expect(page.getByRole('button', { name: 'Đóng', exact: true }).first()).toBeFocused();
   await page.keyboard.press('Escape');
   await test.expect(page.locator('.dialog')).toHaveCount(0);
+  // …and back to the opener on close
+  await test.expect.poll(() => page.evaluate(() =>
+    document.activeElement?.textContent ?? ''), { timeout: 5_000 }).toContain('Đổi mô hình');
   // moon flips html.dark (PrimeVue dark selector)
   const dark = await page.evaluate(() => document.documentElement.classList.contains('dark'));
   await page.locator('.v-status .v-btn.icon.mini').click();
@@ -111,17 +181,20 @@ test('phone width: panel becomes a drawer behind its toggle', async ({ page }) =
 
 // ── clone + engine parity (Task 4, plan 2026-10-30-voice-real-engine) ──
 
-test('clone page: form and my-voices render', async ({ page }) => {
+test('clone page: try-clip, form and my-voices render', async ({ page }) => {
   await page.goto(`${BASE}/voice`);
   await page.getByRole('button', { name: 'Nhân bản giọng' }).click();
   await test.expect(page.locator('.clone-card h1')).toHaveText('Nhân bản giọng');
-  // clip hint + engine-kind note reference the real engine label
-  await test.expect(page.locator('.enroll .v-note'))
-    .toContainText('3–8 giây');
-  await test.expect(page.locator('.enroll .v-note'))
-    .toContainText(/Nano|Turbo/);
+  // try-an-unsaved-clip section (classic parity): refuses a missing clip
+  await page.locator('.try-ref .gen').click();
+  await test.expect(page.locator('#toast:not(.hidden)'))
+    .toContainText('Chọn audio mẫu để nghe thử');
+  // save-enroll section: clip hint + engine-kind note reference the real engine
+  const enroll = page.locator('.enroll:not(.try-ref)');
+  await test.expect(enroll.locator('.v-note')).toContainText('3–8 giây');
+  await test.expect(enroll.locator('.v-note')).toContainText(/Nano|Turbo/);
   // save stays honest: nothing submitted without a name + a clip
-  await page.locator('.clone-card .gen').click();
+  await enroll.locator('.gen').click();
   await test.expect(page.locator('#toast:not(.hidden)')).toContainText('Đặt tên');
 });
 
@@ -144,9 +217,9 @@ cloneTest('real clone roundtrip (enroll → notices per engine → delete)', asy
   await page.goto(`${BASE}/voice`);
   await page.getByRole('button', { name: 'Nhân bản giọng' }).click();
   await test.expect(page.locator('.c-list .voice')).toHaveCount(nanoMine);
-  await page.locator('.c-file').setInputFiles(wav);
+  await page.locator('.enroll:not(.try-ref) .c-file').setInputFiles(wav);
   await page.locator('.c-in').first().fill(name);
-  await page.locator('.clone-card .gen').click();
+  await page.locator('.enroll:not(.try-ref) .gen').click();
   // enroll loads the engine + writes json on-device: ~9 s warm, longer cold
   await test.expect(page.locator('#toast:not(.hidden)'))
     .toContainText(`Đã lưu giọng ${name}`, { timeout: 60_000 });
@@ -158,10 +231,12 @@ cloneTest('real clone roundtrip (enroll → notices per engine → delete)', asy
     encodeURIComponent('Turbo int8 · 48 kHz')}`).then((r) => r.json());
   test.expect(turbo.voices.filter((v) => v.mine).map((v) => v.id)).not.toContain(name);
 
-  // delete it again
+  // delete it again; the toast proves the DELETE completed + list refetched
   await page.on('dialog', (d) => d.accept());   // removeVoice confirm
   await page.locator('.c-list .voice', { hasText: name })
     .getByRole('button', { name: new RegExp(`Xóa giọng ${name}`) }).click();
+  await test.expect(page.locator('#toast:not(.hidden)'))
+    .toContainText(`Đã xóa giọng ${name}`, { timeout: 30_000 });
   await page.reload({ waitUntil: 'networkidle' });
   const nanoClean = await voices(request);
   test.expect(nanoClean.voices.filter((v) => v.mine).map((v) => v.id)).not.toContain(name);
@@ -187,4 +262,15 @@ test('engine switch follows the voice list and persists', async ({ page }) => {
   await page.reload({ waitUntil: 'networkidle' });
   await test.expect(page.locator('.status-txt')).toContainText('Turbo int8 · 48 kHz', { timeout: 60_000 });
   test.expect(errors).toEqual([]);
+});
+
+// ── UX round 2 (spec 2026-10-30-voice-ux-round2) ──
+
+test('row preview (Nghe thử) plays the rendered clip', async ({ page }) => {
+  await page.goto(`${BASE}/voice`);
+  const row = page.locator('.v-list .voice').nth(0);
+  await row.getByRole('button', { name: /Nghe thử/ }).click();
+  const audio = page.locator('audio[src*="/api/preview/"]');
+  await audio.waitFor({ state: 'attached', timeout: 60_000 });
+  await test.expect(page.locator('.p-stat')).toContainText('Đang phát', { timeout: 10_000 });
 });
