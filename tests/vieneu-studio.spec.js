@@ -880,6 +880,8 @@ test.describe('VieNeu Studio · compose', () => {
        async ({ page }) => {
     const errors = watchErrors(page);
     await page.goto(`${BASE}/compose?slug=${draft}`, { waitUntil: 'domcontentloaded' });
+    // the raw pane lives in a collapsed details card — open it first
+    await page.click('.comp-advanced summary');
     const text = await page.waitForSelector('#composeJson').then((el) => el.inputValue());
     expect(text, 'the draft is the poem-sized JSON, not a form').toContain('"version": "1.0"');
     expect(text).toContain('Draft for the e2e run');
@@ -890,6 +892,9 @@ test.describe('VieNeu Studio · compose', () => {
        async ({ page }) => {
     const errors = watchErrors(page);
     await page.goto(`${BASE}/compose?slug=${draft}`, { waitUntil: 'domcontentloaded' });
+    // the raw pane lives in a collapsed details card — open it first
+    await page.click('.comp-advanced summary');
+    await page.waitForSelector('#composeJson');
     const before = await page.inputValue('#composeJson');
     // one char over the hook headline limit (40) — the shared validator must say where
     await page.fill('#composeJson', before.replace('Draft for the e2e run', 'D'.repeat(44)));
@@ -899,6 +904,7 @@ test.describe('VieNeu Studio · compose', () => {
 
     // reload: the page must show the FILE (untouched), not the half-written edit
     await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.click('.comp-advanced summary');   // the pane starts closed
     await page.waitForSelector('#composeJson');
     expect(await page.inputValue('#composeJson'), 'a pending edit never auto-writes')
       .toBe(before);
@@ -908,6 +914,9 @@ test.describe('VieNeu Studio · compose', () => {
   test('a valid edit saved is seen by a fresh tab', async ({ page, browser }) => {
     const errors = watchErrors(page);
     await page.goto(`${BASE}/compose?slug=${draft}`, { waitUntil: 'domcontentloaded' });
+    // the raw pane is collapsed under Advanced; open it to edit the JSON
+    await page.click('.comp-advanced summary');
+    await page.waitForSelector('#composeJson');
     const before = await page.inputValue('#composeJson');
     await page.fill('#composeJson', before.replace('Draft for the e2e run', 'Saved by e2e run'));
     await page.click('.comp-actions button:has-text("Save")');
@@ -916,6 +925,7 @@ test.describe('VieNeu Studio · compose', () => {
     const page2 = await browser.newContext().then((c) => c.newPage());
     const errors2 = watchErrors(page2);
     await page2.goto(`${BASE}/compose?slug=${draft}`, { waitUntil: 'domcontentloaded' });
+    await page2.click('.comp-advanced summary');   // the pane starts closed
     const text = await page2.waitForSelector('#composeJson').then((el) => el.inputValue());
     expect(text, 'the save must reach the file, not just this tab').toContain('Saved by e2e run');
     expect(errors2).toEqual([]);
