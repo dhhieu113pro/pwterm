@@ -179,11 +179,12 @@ test.describe('VieNeu Studio · gallery', () => {
       // unique title so the card locator can't collide with other projects
       const title = `E2E delete ${tmp.id}`;
       await request.patch(`${BASE}/api/projects/${tmp.id}`, { data: { title } });
-      page.on('dialog', (d) => d.accept());
       await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
       const card = cardOf(page, title);
       await expect(card).toBeVisible();
-      await card.locator('.vdel').click();
+      await card.locator('.vdel').click();          // PrimeVue ConfirmDialog, in-DOM
+      await expect(page.locator('.p-confirmdialog-accept-button')).toBeVisible();
+      await page.locator('.p-confirmdialog-accept-button').click();
       await expect(card).toHaveCount(0, { timeout: 20000 });
       const left = await listProjects(request);
       expect(left.some((p) => p.id === tmp.id)).toBe(false);
@@ -938,8 +939,9 @@ test.describe('VieNeu Studio · compose', () => {
     await page.goto(`${BASE}/compose`, { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('.comp-card');
     const gone = draft;                 // this slug's only cleanup hop
-    page.on('dialog', (d) => d.accept());
-    await cardOf(page, gone).locator('.vdel').click();
+    await cardOf(page, gone).locator('.vdel').click();   // in-DOM ConfirmDialog
+    await expect(page.locator('.p-confirmdialog-accept-button')).toBeVisible();
+    await page.locator('.p-confirmdialog-accept-button').click();
     await expect(page.locator('#toast:not(.hidden)')).toBeVisible();
     await expect(cardOf(page, gone)).toHaveCount(0);
     const res = await request.get(`${BASE}/api/compose/${gone}`);
@@ -955,8 +957,9 @@ test.describe('VieNeu Studio · compose', () => {
     await page.waitForSelector('.comp-card');
     // another actor wins the race: the slug vanishes before the delete click
     await request.delete(`${BASE}/api/compose/${draft}`);
-    page.on('dialog', (d) => d.accept());
-    await cardOf(page, draft).locator('.vdel').click();
+    await cardOf(page, draft).locator('.vdel').click();  // in-DOM ConfirmDialog
+    await expect(page.locator('.p-confirmdialog-accept-button')).toBeVisible();
+    await page.locator('.p-confirmdialog-accept-button').click();
     await expect(page.locator('#toast:not(.hidden)')).toBeVisible();
     await expect(page.locator('#app')).toBeVisible();   // a toast, NOT a blank page
     draft = null;

@@ -232,9 +232,9 @@ cloneTest('real clone roundtrip (enroll → notices per engine → delete)', asy
   test.expect(turbo.voices.filter((v) => v.mine).map((v) => v.id)).not.toContain(name);
 
   // delete it again; the toast proves the DELETE completed + list refetched
-  await page.on('dialog', (d) => d.accept());   // removeVoice confirm
   await page.locator('.c-list .voice', { hasText: name })
     .getByRole('button', { name: new RegExp(`Xóa giọng ${name}`) }).click();
+  await page.locator('.p-confirmdialog-accept-button').click();
   await test.expect(page.locator('#toast:not(.hidden)'))
     .toContainText(`Đã xóa giọng ${name}`, { timeout: 30_000 });
   await page.reload({ waitUntil: 'networkidle' });
