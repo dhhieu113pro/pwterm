@@ -188,24 +188,9 @@ npm run report               # open the last HTML report
 | `tests/example.spec.js` | network + offline DOM/form sanity checks |
 | `tests/login.spec.js` | positive login, invalid username, invalid password |
 | `tests/stealth.spec.js` | stealth layer: no automation tells, opt-out restores stock |
-| `tests/vieneu-studio.spec.js` | a local app: gallery, routing, video decode/seek, provider key masking |
 | `tests/vieneu-pipeline.spec.js` | local app, full flow: link → transcript → translate → dub (opt-in, slow) |
 
-### Testing a local app: VieNeu Studio
-
-`tests/vieneu-studio.spec.js` points at a dubbing studio running on the same phone. It is the reference for testing something *local* instead of a public site:
-
-```bash
-vieneu-studio start                    # in another shell
-VIENEU_STUDIO_URL=http://127.0.0.1:7861 npm test -- tests/vieneu-studio.spec.js
-pwterm run examples/vieneu-studio.yaml # manual smoke, with screenshots
-```
-
-The spec deliberately asserts the things that break silently in a browser: a direct `/project/{id}` link and a reload both come up populated, the page boots with **no uncaught errors**, the `<video>` reaches `readyState >= 2` with a non-zero `videoWidth` (a codec the device cannot decode looks fine in the DOM otherwise), byte ranges work so seeking does, the remembered Source/Dubbed view survives a reopen, and API keys never reach the page. It discovers projects through `/api/projects` instead of hard-coding ids, and cleans up the throwaway project it creates.
-
-`examples/vieneu-studio.yaml` is the CLI counterpart: gallery → open the first card → wait for decode → Translate tab → back to the gallery, printing `readyState`/`videoWidth` and writing screenshots to `artifacts/`.
-
-#### The full pipeline (slow, opt-in)
+### The full pipeline (slow, opt-in)
 
 `tests/vieneu-pipeline.spec.js` covers the whole product: paste a link into the Auto dialog, then download → transcript → Vietnamese translation → dub, and finally play the delivered file. It is skipped unless you hand it a link:
 
