@@ -1,6 +1,6 @@
 /* /voice → Hội thoại smoke: cast rows, Enter lines, paste-import, one real
  * Turbo line through the dialog job, history gains a dialog- wav. */
-const test = require('@playwright/test');
+const test = require('./fixtures').test;
 
 const BASE = (process.env.VIENEU_STUDIO_URL || 'http://127.0.0.1:7861')
   .replace(/\/+$/, '');

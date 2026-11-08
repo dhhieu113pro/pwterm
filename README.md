@@ -165,6 +165,8 @@ stealth: false
 steps: [...]
 ```
 
+It applies to the `@playwright/test` runner as well: `playwright.config.js` injects the stealth flags and UA, and `tests/fixtures.js` adds the init script — specs import `{ test, expect }` from `./fixtures` (so they get it automatically). `PWTERM_NO_STEALTH=1` disables it everywhere.
+
 `pwterm doctor` reports whether stealth is active (`stealth   on — automation tells patched`). `tests/stealth.spec.js` verifies all of the above against the real browser.
 
 **Limits, honestly:** this is a flag + runtime-patch layer, not a recompiled browser. Source-level projects (e.g. [CloakBrowser](https://github.com/CloakHQ/CloakBrowser)) patch canvas/WebGL/audio/TLS inside Chromium's C++ and pass the hardest suites (Cloudflare Turnstile, reCAPTCHA). pwterm's stealth clears the common client-side tells — verified green end-to-end on bot.sannysoft.com (UA, WebDriver+advanced document probes, Chrome, permissions, plugins, languages, WebGL vendor/renderer) — but not server-side TLS match or CDP-level detection. GPU, screen, and platform stay the real values on purpose — a coherent Termux/ARM identity beats a lopsided fake Windows one.
@@ -294,9 +296,9 @@ Exporting it only for the child process does not work — the shell doing the `e
 ```
 install.sh             # one-shot installer (Chromium, node, CLI, shim, .env, doctor)
 .env                   # Termux paths (no secrets)
-playwright.config.js   # testDir, list reporter, system-Chromium launchOptions
+playwright.config.js   # testDir, list reporter, system-Chromium launchOptions + stealth flags
 index.js               # standalone scrape demo (npm start)
-tests/                 # specs
+tests/                 # specs (+ fixtures.js: stealth context for the runner)
 bin/pwterm.js          # CLI entry point
 src/                   # cli, flow runner, interactive shell, doctor, stealth
 scripts/               # Termux postinstall shim

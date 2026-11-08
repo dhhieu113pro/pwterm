@@ -3,7 +3,7 @@
  *   VIENEU_STUDIO_URL=http://127.0.0.1:7861 npm test -- tests/vieneu-voice.spec.js
  * Desktop-first per the spec; the generate test produces one real preview
  * through the engine (a few seconds), nothing is stubbed. */
-const test = require('@playwright/test');
+const test = require('./fixtures').test;
 
 const BASE = (process.env.VIENEU_STUDIO_URL || 'http://127.0.0.1:7861')
   .replace(/\/+$/, '');

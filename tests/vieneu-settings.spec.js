@@ -10,7 +10,7 @@
  * they run in order, each sets the state it needs through the API, and the
  * original settings are put back at the end.
  */
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./fixtures');
 
 const BASE = (process.env.VIENEU_STUDIO_URL || 'http://127.0.0.1:7861')
   .replace(/\/+$/, '');

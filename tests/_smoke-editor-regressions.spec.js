@@ -1,7 +1,7 @@
 /* Review-pass regressions (2026-10-28): the editor Auto body must carry
    the tab settings, and the 1.4s poll must not clobber what the user is
    doing mid-second — typing the title, or a picked cue. */
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./fixtures');
 
 const BASE = (process.env.VIENEU_STUDIO_URL || 'http://127.0.0.1:7861')
   .replace(/\/+$/, '');

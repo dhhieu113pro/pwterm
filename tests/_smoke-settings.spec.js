@@ -1,6 +1,6 @@
 /* Stand-in smoke check for the Vue /settings page — to be replaced/rewritten
    by the real settings spec once the UI migration is stable. */
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./fixtures');
 
 const BASE = (process.env.VIENEU_STUDIO_URL || 'http://127.0.0.1:7861')
   .replace(/\/+$/, '');

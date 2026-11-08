@@ -1,7 +1,7 @@
 /* Stand-in smoke checks for the Vue editor step actions (phase 4c):
    inspector tabs, job line/gates, settings PATCH persistence, provider
    manage CRUD. Uses a throwaway project and throwaway provider. */
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./fixtures');
 
 const BASE = (process.env.VIENEU_STUDIO_URL || 'http://127.0.0.1:7861')
   .replace(/\/+$/, '');

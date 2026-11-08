@@ -1,4 +1,4 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./fixtures');
 
 const URL = 'https://practicetestautomation.com/practice-test-login/';
 const VALID = { username: 'student', password: 'Password123' };

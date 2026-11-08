@@ -1,6 +1,6 @@
 /* Stand-in smoke checks for the Vue home page — to be replaced/rewritten by
    the real gallery spec after the UI migration. */
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./fixtures');
 
 const BASE = (process.env.VIENEU_STUDIO_URL || 'http://127.0.0.1:7861')
   .replace(/\/+$/, '');

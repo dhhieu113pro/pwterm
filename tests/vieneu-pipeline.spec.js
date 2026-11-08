@@ -22,7 +22,7 @@
  * stage must end "done", the transcript must be Vietnamese, and the result must
  * be a seekable MP4 with an audio track that Chromium can decode and play.
  */
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./fixtures');
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');

@@ -11,7 +11,7 @@
  * appear on touch, a delete control only a mouse can reach, and controls
  * that each have their own height and corner.
  */
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./fixtures');
 
 const BASE = (process.env.VIENEU_STUDIO_URL || 'http://127.0.0.1:7861')
   .replace(/\/+$/, '');

@@ -1,7 +1,7 @@
 /* Stand-in smoke checks for the Vue editor script editing (phase 4b):
    add cues, edit their text, delete — the debounced PUT /script round-trip.
    Uses its own throwaway project, deleted at the end. */
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./fixtures');
 
 const BASE = (process.env.VIENEU_STUDIO_URL || 'http://127.0.0.1:7861')
   .replace(/\/+$/, '');

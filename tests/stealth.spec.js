@@ -1,6 +1,6 @@
 // Verifies the stealth layer: launch through pwterm's own launch() (stealth
 // on by default) and evaluate the checks anti-bot pages run first.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./fixtures');
 
 const { launch } = require('../src/browser');
 

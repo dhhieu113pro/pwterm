@@ -1,7 +1,7 @@
 /* Stand-in smoke checks for the Vue editor page (phase 4a: boot, header,
    players, projects rail, read-only timeline). Replaced by the real editor
    spec when cue editing and jobs land. */
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./fixtures');
 
 const BASE = (process.env.VIENEU_STUDIO_URL || 'http://127.0.0.1:7861')
   .replace(/\/+$/, '');

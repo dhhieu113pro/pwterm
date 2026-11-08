@@ -17,7 +17,7 @@
  * assertion keeps its intent (per the rewrite plan). Selectors that the
  * Vue pages renamed are mapped below.
  */
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./fixtures');
 
 const BASE = (process.env.VIENEU_STUDIO_URL || 'http://127.0.0.1:7861')
   .replace(/\/+$/, '');
