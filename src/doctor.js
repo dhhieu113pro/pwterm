@@ -3,6 +3,7 @@
 const fs = require('fs');
 
 const { launch } = require('./browser');
+const stealth = require('./stealth');
 const c = require('./style');
 const { findChromium, isTermux } = require('./termux');
 const { formatMs } = require('./util');
@@ -72,6 +73,12 @@ async function doctor() {
     'display',
     true,
     process.env.DISPLAY || '(none — headless only)'
+  );
+
+  add(
+    'stealth',
+    true,
+    stealth.enabled() ? 'on — automation tells patched (flags + init script)' : 'off (PWTERM_NO_STEALTH)'
   );
 
   let launchError = null;

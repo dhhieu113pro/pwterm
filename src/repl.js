@@ -72,7 +72,7 @@ async function startRepl(options = {}) {
   async function ensurePage() {
     if (session.page && !session.page.isClosed()) return session.page;
     if (!session.browser || !session.browser.isConnected()) {
-      session.browser = await launch({ headless });
+      session.browser = await launch({ headless, stealth: options.stealth });
       session.context = await session.browser.newContext({});
     }
     session.page = await session.context.newPage();

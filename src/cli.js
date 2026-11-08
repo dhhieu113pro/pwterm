@@ -26,6 +26,7 @@ ${c.bold('usage')}
 
 ${c.bold('options')}
   --headed            show the browser (needs Termux:X11 + DISPLAY)
+  --no-stealth        launch stock Chromium (stealth patches are on by default)
   --var key=value     set a flow variable (repeatable)
   --timeout <ms>      override the default timeout
   --full-page         shot: capture the whole page
@@ -42,6 +43,7 @@ function parseOptions(argv) {
       break;
     }
     if (arg === '--headed') opts.headed = true;
+    else if (arg === '--no-stealth') opts.stealth = false;
     else if (arg === '--quiet' || arg === '-q') opts.quiet = true;
     else if (arg === '--full-page') opts.fullPage = true;
     else if (arg === '--no-fail-shot') opts.failShot = false;
@@ -76,7 +78,7 @@ async function shot(opts) {
   const isPdf = /\.pdf$/i.test(target);
   if (isPdf && opts.headed) throw new UserError('PDF export only works headless');
 
-  const browser = await launch({ headless: !opts.headed });
+  const browser = await launch({ headless: !opts.headed, stealth: opts.stealth });
   try {
     const page = await browser.newPage();
     await page.goto(url, { waitUntil: 'load' });

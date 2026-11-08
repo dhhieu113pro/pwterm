@@ -342,7 +342,9 @@ async function runFlow(file, options = {}) {
     console.log(c.dim(`  note: ${stateFile} does not exist, starting with a fresh session`));
   }
 
-  const browser = await launch({ headless, executablePath: options.executablePath });
+  // Flow-level `stealth: false` wins over the CLI flag.
+  const stealthEnabled = doc.stealth !== undefined ? Boolean(doc.stealth) : options.stealth;
+  const browser = await launch({ headless, executablePath: options.executablePath, stealth: stealthEnabled });
   const context = await browser.newContext({
     baseURL: doc.baseUrl ? template(doc.baseUrl, vars) : undefined,
     viewport: doc.viewport || undefined,

@@ -3,6 +3,7 @@
 const { chromium } = require('playwright-core');
 
 const { findChromium } = require('./termux');
+const stealth = require('./stealth');
 const { UserError } = require('./util');
 
 const DEFAULT_ARGS = ['--no-sandbox', '--disable-gpu'];
@@ -19,11 +20,24 @@ async function launch(options = {}) {
     );
   }
 
-  return chromium.launch({
+  // Stealth is on by default (PWTERM_NO_STEALTH=1 or stealth:false opts out).
+  const useStealth = stealth.enabled(options);
+  // stealth.launchOptions already composes the caller's args; when stealth
+  // is off, fall back to them directly.
+  const extra = useStealth
+    ? stealth.launchOptions({ ...options, executablePath })
+    : { args: options.args || [] };
+
+  const browser = await chromium.launch({
     executablePath,
     headless: options.headless !== false,
-    args: [...DEFAULT_ARGS, ...(options.args || [])],
+    args: [...DEFAULT_ARGS, ...extra.args],
+    ...(extra.ignoreDefaultArgs ? { ignoreDefaultArgs: extra.ignoreDefaultArgs } : {}),
   });
+
+  if (useStealth) stealth.harden(browser);
+
+  return browser;
 }
 
 async function withBrowser(options, fn) {

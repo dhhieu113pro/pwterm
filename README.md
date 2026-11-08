@@ -110,7 +110,7 @@ Templates support `{{name}}`, `{{env.HOME}}` and `--var key=value`. A failing st
 | `upload` | `{ selector, files }` |
 | `select`, `check`, `uncheck`, `scroll`, `setViewport`, `reload`, `goBack`, `eval`, `log` | see `pwterm help` |
 
-Flow-level options: `baseUrl`, `vars`, `timeout`, `headless`, `viewport`, `waitUntil`, `storageState` (load cookies), `saveState` (write them after a successful run).
+Flow-level options: `baseUrl`, `vars`, `timeout`, `headless`, `viewport`, `waitUntil`, `stealth` (disable the stealth layer with `stealth: false`), `storageState` (load cookies), `saveState` (write them after a successful run).
 
 Note on `baseUrl`: URLs resolve like a browser link, so a leading `/` is the domain root even when `baseUrl` has a path. Keep `baseUrl` to the origin (`https://example.com`) and put the path in `goto`.
 
@@ -138,6 +138,37 @@ pwterm report
 pwterm doctor
 ```
 
+### Stealth browser
+
+`pwterm` launches Chromium with a stealth layer on by default, so automation tells that anti-bot pages check first are already handled:
+
+| Leak in stock Playwright | What pwterm does |
+|---|---|
+| `navigator.webdriver === true` | Patched on the prototype (own-property fakes are caught by `_.has`-style checks) → reads `false` |
+| `--enable-automation`-style flags | Withheld via `ignoreDefaultArgs`, plus `--disable-blink-features=AutomationControlled` |
+| UA contains `HeadlessChrome` | Real version read from the binary, UA reads `Chrome/<ver>` |
+| Headless WebGL reports SwiftShader | Masked only when it actually leaks; real GPUs pass through untouched |
+| `permissions.query` mismatch on notifications | Resolves with the real state |
+| plugins / `window.chrome` / languages | Nothing to fix — modern headless Chromium already reports these correctly |
+
+Opt out per command, per flow, or globally:
+
+```bash
+pwterm run flow.yaml --no-stealth          # stock Chromium
+PWTERM_NO_STEALTH=1 npm test               # stealth off for a session
+```
+
+```yaml
+# flow-level opt-out
+baseUrl: https://example.com
+stealth: false
+steps: [...]
+```
+
+`pwterm doctor` reports whether stealth is active (`stealth   on — automation tells patched`). `tests/stealth.spec.js` verifies all of the above against the real browser.
+
+**Limits, honestly:** this is a flag + runtime-patch layer, not a recompiled browser. Source-level projects (e.g. [CloakBrowser](https://github.com/CloakHQ/CloakBrowser)) patch canvas/WebGL/audio/TLS inside Chromium's C++ and pass the hardest suites (Cloudflare Turnstile, reCAPTCHA). pwterm's stealth clears the common client-side tells — verified green end-to-end on bot.sannysoft.com (UA, WebDriver+advanced document probes, Chrome, permissions, plugins, languages, WebGL vendor/renderer) — but not server-side TLS match or CDP-level detection. GPU, screen, and platform stay the real values on purpose — a coherent Termux/ARM identity beats a lopsided fake Windows one.
+
 ## The test suite
 
 ```bash
@@ -154,6 +185,7 @@ npm run report               # open the last HTML report
 |------|--------|
 | `tests/example.spec.js` | network + offline DOM/form sanity checks |
 | `tests/login.spec.js` | positive login, invalid username, invalid password |
+| `tests/stealth.spec.js` | stealth layer: no automation tells, opt-out restores stock |
 | `tests/vieneu-studio.spec.js` | a local app: gallery, routing, video decode/seek, provider key masking |
 | `tests/vieneu-pipeline.spec.js` | local app, full flow: link → transcript → translate → dub (opt-in, slow) |
 
@@ -266,7 +298,7 @@ playwright.config.js   # testDir, list reporter, system-Chromium launchOptions
 index.js               # standalone scrape demo (npm start)
 tests/                 # specs
 bin/pwterm.js          # CLI entry point
-src/                   # cli, flow runner, interactive shell, doctor
+src/                   # cli, flow runner, interactive shell, doctor, stealth
 scripts/               # Termux postinstall shim
 examples/login.yaml    # sample flow
 ```
