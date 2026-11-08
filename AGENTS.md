@@ -1,4 +1,4 @@
-# playwright-automation (pwterm)
+# pwterm (repo: dhhieu113pro/pwterm)
 
 ## Tests are Playwright — always
 

@@ -1,20 +1,70 @@
-# playwright-automation
+# pwterm
 
-Playwright end-to-end tests running on **Termux (Android)** against a system-installed Chromium — no Playwright browser downloads, no root.
+Playwright end-to-end tests and a browser-automation CLI, running on **Termux (Android)** against the system-installed Chromium — no Playwright browser downloads, no root.
 
-Fork of [Jobians/playwright-termux](https://github.com/Jobians/playwright-termux), extended into a working test project: `@playwright/test` runner, config, and real specs — a public login-exercise site plus a local app running on the phone.
+Fork of [Jobians/playwright-termux](https://github.com/Jobians/playwright-termux), extended into a working test project: an `@playwright/test` suite, a YAML flow runner, and an interactive browser shell.
 
-## `pwterm` — the CLI
+## Install (one script)
 
-The repo also ships a CLI, so you can drive the browser from any directory instead of editing a spec.
+On a fresh Termux:
 
 ```bash
-cd playwright-automation
-npm install -g .        # installs the `pwterm` command
-# npm 11 may skip postinstall scripts. If `pwterm` reports a bad interpreter:
-node "$(npm root -g)/pwterm/scripts/termux-shim.js"
-pwterm doctor           # Chromium path, environment, and a real launch test
+curl -fsSL https://raw.githubusercontent.com/dhhieu113pro/pwterm/main/install.sh | bash
 ```
+
+Already cloned the repo? From its directory:
+
+```bash
+bash install.sh
+```
+
+The script does everything:
+
+1. Installs `nodejs` and `chromium` (enabling the x11-repo) if missing.
+2. Runs `npm install` in the repo.
+3. `npm install -g .` to put the `pwterm` command on your PATH.
+4. Applies the Termux bin shim (see below), generates `.env` with your detected Chromium path.
+5. Runs `pwterm doctor` to confirm Chromium actually launches.
+
+Options: `--dir PATH` (clone location), `--repo URL`, `--no-global` (skip the global CLI). After it finishes:
+
+```bash
+pwterm open                       # interactive browser shell
+pwterm run examples/login.yaml    # run a YAML flow
+npm test                          # run the Playwright test suite
+```
+
+<details>
+<summary>Manual setup (or if the script fails)</summary>
+
+```bash
+# 1. Chromium (also enables x11-repo)
+pkg install x11-repo
+pkg update
+pkg install chromium
+
+# 2. Confirm the binary path — package names/paths differ across Termux versions
+which chromium-browser 2>/dev/null || which chromium
+
+# 3. Dependencies + CLI
+cd pwterm
+npm install
+npm install -g .
+
+# 4. npm 11 may skip postinstall scripts. If `pwterm` reports a bad interpreter:
+node "$(npm root -g)/pwterm/scripts/termux-shim.js"
+
+# 5. Then set .env:
+#    PLAYWRIGHT_BROWSERS_PATH=0
+#    CHROMIUM_PATH=/data/data/com.termux/files/usr/bin/chromium-browser
+# (no secrets — just the path to your Chromium build)
+```
+
+</details>
+
+## The `pwterm` CLI
+
+Drive the browser from any directory instead of editing a spec.
 
 ### Run a flow
 
@@ -88,65 +138,7 @@ pwterm report
 pwterm doctor
 ```
 
-### Why `npm install -g .` works on Termux
-
-An npm `bin` symlink starts with `#!/usr/bin/env node`, and Termux has no `/usr/bin/env` — that is the `bad interpreter` error. The package's `postinstall` detects Termux and replaces the symlink with a small `sh` wrapper in `$PREFIX/bin` that hardcodes the absolute `node` path (see `scripts/termux-shim.js`).
-
-Newer npm versions gate install scripts behind `allowScripts`. If the postinstall did not run, install the wrapper once by hand:
-
-```bash
-node "$(npm root -g)/pwterm/scripts/termux-shim.js"
-```
-
-To fix npm bins globally instead, load termux-exec in the **parent shell** before spawning anything:
-
-```bash
-echo 'export LD_PRELOAD="$PREFIX/lib/libtermux-exec.so"' >> ~/.bashrc
-exec bash
-```
-
-Exporting it only for the child process does not work — the shell doing the `execve` must itself run with the preload.
-
-## Why this needs special handling
-
-`playwright` bundles browser binaries, and on Android its browser-path logic throws `Error: Unsupported platform: android`. This setup avoids all of it:
-
-- `playwright-core` — no browser downloads at all.
-- `PLAYWRIGHT_BROWSERS_PATH=0` — disables Playwright's default cache/platform logic.
-- System Chromium from the Termux X11 repo, passed via `executablePath`.
-
-## Requirements
-
-- Termux with the X11 repository enabled
-- Chromium from that repo (not the Play Store/Android Chrome)
-- Node.js (tested on Node 26, npm 11)
-
-## Setup
-
-```bash
-# 1. Chromium (also enables x11-repo)
-pkg install x11-repo
-pkg update
-pkg install chromium
-
-# 2. Confirm the binary path — package names/paths differ across Termux versions
-which chromium-browser 2>/dev/null || which chromium
-
-# 3. Dependencies
-cd playwright-automation
-npm install
-```
-
-Then set `.env`:
-
-```
-PLAYWRIGHT_BROWSERS_PATH=0
-CHROMIUM_PATH=/data/data/com.termux/files/usr/bin/chromium-browser
-```
-
-`.env` holds no secrets — only the path to your Chromium build.
-
-## Running tests
+## The test suite
 
 ```bash
 npm test                     # all specs
@@ -158,8 +150,6 @@ npm run report               # open the last HTML report
 
 `pwterm test` runs the same runner from anywhere inside the project.
 
-Current suite:
-
 | Spec | Covers |
 |------|--------|
 | `tests/example.spec.js` | network + offline DOM/form sanity checks |
@@ -169,34 +159,21 @@ Current suite:
 
 ### Testing a local app: VieNeu Studio
 
-`tests/vieneu-studio.spec.js` points at a dubbing studio running on the same
-phone. It is the reference for testing something *local* instead of a public
-site:
+`tests/vieneu-studio.spec.js` points at a dubbing studio running on the same phone. It is the reference for testing something *local* instead of a public site:
 
 ```bash
-vieneu-studio start                                   # in another shell
+vieneu-studio start                    # in another shell
 VIENEU_STUDIO_URL=http://127.0.0.1:7861 npm test -- tests/vieneu-studio.spec.js
-pwterm run examples/vieneu-studio.yaml                # manual smoke, with screenshots
+pwterm run examples/vieneu-studio.yaml # manual smoke, with screenshots
 ```
 
-The spec deliberately asserts the things that break silently in a browser:
-a direct `/project/{id}` link and a reload both come up populated, the page
-boots with **no uncaught errors**, the `<video>` reaches `readyState >= 2`
-with a non-zero `videoWidth` (a codec the device cannot decode looks fine in
-the DOM otherwise), byte ranges work so seeking does, the remembered
-Source/Dubbed view survives a reopen, and API keys never reach the page. It discovers projects through
-`/api/projects` instead of hard-coding ids, and cleans up the throwaway
-project it creates.
+The spec deliberately asserts the things that break silently in a browser: a direct `/project/{id}` link and a reload both come up populated, the page boots with **no uncaught errors**, the `<video>` reaches `readyState >= 2` with a non-zero `videoWidth` (a codec the device cannot decode looks fine in the DOM otherwise), byte ranges work so seeking does, the remembered Source/Dubbed view survives a reopen, and API keys never reach the page. It discovers projects through `/api/projects` instead of hard-coding ids, and cleans up the throwaway project it creates.
 
-`examples/vieneu-studio.yaml` is the CLI counterpart: gallery → open the
-first card → wait for decode → Translate tab → back to the gallery, printing
-`readyState`/`videoWidth` and writing screenshots to `artifacts/`.
+`examples/vieneu-studio.yaml` is the CLI counterpart: gallery → open the first card → wait for decode → Translate tab → back to the gallery, printing `readyState`/`videoWidth` and writing screenshots to `artifacts/`.
 
 #### The full pipeline (slow, opt-in)
 
-`tests/vieneu-pipeline.spec.js` covers the whole product: paste a link into
-the Auto dialog, then download → transcript → Vietnamese translation → dub,
-and finally play the delivered file. It is skipped unless you hand it a link:
+`tests/vieneu-pipeline.spec.js` covers the whole product: paste a link into the Auto dialog, then download → transcript → Vietnamese translation → dub, and finally play the delivered file. It is skipped unless you hand it a link:
 
 ```bash
 VIENEU_E2E_PIPELINE_URL='https://youtu.be/…' \
@@ -213,20 +190,9 @@ VIENEU_STUDIO_URL=http://127.0.0.1:7861 \
 | `VIENEU_E2E_DOWNLOAD_DIR` | write the dubbed mp4 there (the project itself is still cleaned up) |
 | `VIENEU_E2E_TIMEOUT_MS` | overall budget, default 60 min |
 
-It asserts all four stages reach `done`, the transcript is Vietnamese (diacritic
-ratio, length sanity), the SRT is served, the result is an MP4 that reports
-`206` for a byte range, has a real audio track (via `ffprobe`, when installed),
-and decodes and plays in Chromium with the API's duration. A failed run keeps
-its project so the job log and partial transcript can be inspected; a passing
-run deletes it. `examples/vieneu-pipeline.yaml` is the manual version for
-`pwterm`.
+It asserts all four stages reach `done`, the transcript is Vietnamese (diacritic ratio, length sanity), the SRT is served, the result is an MP4 that reports `206` for a byte range, has a real audio track (via `ffprobe`, when installed), and decodes and plays in Chromium with the API's duration. A failed run keeps its project so the job log and partial transcript can be inspected; a passing run deletes it. `examples/vieneu-pipeline.yaml` is the manual version for `pwterm`.
 
-This is a phone: take a wake-lock first (`termux-wake-lock`) or Android may
-kill the Studio during the dub. The test retries briefly, then fails with an
-explicit "the Studio stopped answering" message; after a restart the queue
-marks the job `interrupted` — that is the OS, not a translation bug.
-
-`npm start` still runs `index.js`, the original scrape demo that prints a page title.
+This is a phone: take a wake-lock first (`termux-wake-lock`) or Android may kill the Studio during the dub. The test retries briefly, then fails with an explicit "the Studio stopped answering" message; after a restart the queue marks the job `interrupted` — that is the OS, not a translation bug.
 
 ## Writing a test
 
@@ -254,6 +220,35 @@ const browser = await chromium.launch({
 });
 ```
 
+## Why this needs special handling
+
+`playwright` bundles browser binaries, and on Android its browser-path logic throws `Error: Unsupported platform: android`. This setup avoids all of it:
+
+- `playwright-core` — no browser downloads at all.
+- `PLAYWRIGHT_BROWSERS_PATH=0` — disables Playwright's default cache/platform logic.
+- System Chromium from the Termux X11 repo, passed via `executablePath`.
+
+`install.sh` automates every part of this, including the bin shim below.
+
+### Why `npm install -g .` needs a shim on Termux
+
+An npm `bin` symlink starts with `#!/usr/bin/env node`, and Termux has no `/usr/bin/env` — that is the `bad interpreter` error. The package's `postinstall` detects Termux and replaces the symlink with a small `sh` wrapper in `$PREFIX/bin` that hardcodes the absolute `node` path (see `scripts/termux-shim.js`).
+
+Newer npm versions gate install scripts behind `allowScripts`. If the postinstall did not run, install the wrapper once by hand:
+
+```bash
+node "$(npm root -g)/pwterm/scripts/termux-shim.js"
+```
+
+To fix npm bins globally instead, load termux-exec in the **parent shell** before spawning anything:
+
+```bash
+echo 'export LD_PRELOAD="$PREFIX/lib/libtermux-exec.so"' >> ~/.bashrc
+exec bash
+```
+
+Exporting it only for the child process does not work — the shell doing the `execve` must itself run with the preload.
+
 ## Termux gotchas (learned the hard way)
 
 1. **`npx playwright` / `node_modules/.bin/*` don't work.** Termux has no `/usr/bin/env`, so every npm bin shebang fails with `bad interpreter`. The `test` script calls the CLI directly instead: `node ./node_modules/@playwright/test/cli.js test`. termux-exec *can* fix it, but `LD_PRELOAD` must be set in the parent shell (via `~/.bashrc` and a new session) — setting it only for the child does nothing. `pwterm` itself sidesteps the issue with a shim (`scripts/termux-shim.js`).
@@ -265,16 +260,17 @@ const browser = await chromium.launch({
 ## Project structure
 
 ```
-.env                  # Termux paths (no secrets)
-playwright.config.js  # testDir, list reporter, system-Chromium launchOptions
-index.js              # standalone scrape demo (npm start)
-tests/                # specs
-bin/pwterm.js         # CLI entry point
-src/                  # cli, flow runner, interactive shell, doctor
-scripts/              # Termux postinstall shim
-examples/login.yaml   # sample flow
+install.sh             # one-shot installer (Chromium, node, CLI, shim, .env, doctor)
+.env                   # Termux paths (no secrets)
+playwright.config.js   # testDir, list reporter, system-Chromium launchOptions
+index.js               # standalone scrape demo (npm start)
+tests/                 # specs
+bin/pwterm.js          # CLI entry point
+src/                   # cli, flow runner, interactive shell, doctor
+scripts/               # Termux postinstall shim
+examples/login.yaml    # sample flow
 ```
 
 ## Credit
 
-Built on [Jobians/playwright-termux](https://github.com/Jobians/playwright-termux) (MIT) — the original Chromium + `playwright-core` workaround. This repo adds the `@playwright/test` runner, config, tests, and the Termux notes above.
+Built on [Jobians/playwright-termux](https://github.com/Jobians/playwright-termux) (MIT) — the original Chromium + `playwright-core` workaround. This repo adds the `@playwright/test` runner, config, tests, the `pwterm` CLI, and the Termux notes above.
