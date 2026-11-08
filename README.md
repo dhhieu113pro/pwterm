@@ -188,30 +188,6 @@ npm run report               # open the last HTML report
 | `tests/example.spec.js` | network + offline DOM/form sanity checks |
 | `tests/login.spec.js` | positive login, invalid username, invalid password |
 | `tests/stealth.spec.js` | stealth layer: no automation tells, opt-out restores stock |
-| `tests/vieneu-pipeline.spec.js` | local app, full flow: link → transcript → translate → dub (opt-in, slow) |
-
-### The full pipeline (slow, opt-in)
-
-`tests/vieneu-pipeline.spec.js` covers the whole product: paste a link into the Auto dialog, then download → transcript → Vietnamese translation → dub, and finally play the delivered file. It is skipped unless you hand it a link:
-
-```bash
-VIENEU_E2E_PIPELINE_URL='https://youtu.be/…' \
-VIENEU_STUDIO_URL=http://127.0.0.1:7861 \
-  npm test -- tests/vieneu-pipeline.spec.js
-```
-
-| Env | Meaning |
-|-----|---------|
-| `VIENEU_E2E_PIPELINE_URL` | the link to run (required, otherwise skipped) |
-| `VIENEU_E2E_BACKEND=local` | force the offline translator instead of a saved provider |
-| `VIENEU_E2E_PROVIDER=OpenRouter` | pick a provider by label in the dialog |
-| `VIENEU_E2E_KEEP=1` | keep the project and save the mp4 for review |
-| `VIENEU_E2E_DOWNLOAD_DIR` | write the dubbed mp4 there (the project itself is still cleaned up) |
-| `VIENEU_E2E_TIMEOUT_MS` | overall budget, default 60 min |
-
-It asserts all four stages reach `done`, the transcript is Vietnamese (diacritic ratio, length sanity), the SRT is served, the result is an MP4 that reports `206` for a byte range, has a real audio track (via `ffprobe`, when installed), and decodes and plays in Chromium with the API's duration. A failed run keeps its project so the job log and partial transcript can be inspected; a passing run deletes it. `examples/vieneu-pipeline.yaml` is the manual version for `pwterm`.
-
-This is a phone: take a wake-lock first (`termux-wake-lock`) or Android may kill the Studio during the dub. The test retries briefly, then fails with an explicit "the Studio stopped answering" message; after a restart the queue marks the job `interrupted` — that is the OS, not a translation bug.
 
 ## Writing a test
 
