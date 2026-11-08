@@ -271,6 +271,6 @@ scripts/               # Termux postinstall shim
 examples/login.yaml    # sample flow
 ```
 
-## Credit
+## License
 
-Built on [Jobians/playwright-termux](https://github.com/Jobians/playwright-termux) (MIT) — the original Chromium + `playwright-core` workaround. This repo adds the `@playwright/test` runner, config, tests, the `pwterm` CLI, and the Termux notes above.
+MIT — see [LICENSE](LICENSE). Built on [Jobians/playwright-termux](https://github.com/Jobians/playwright-termux) — the original Chromium + `playwright-core` workaround. This repo adds the `@playwright/test` runner, config, tests, the `pwterm` CLI, and the Termux notes above.
